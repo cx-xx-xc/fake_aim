@@ -91,4 +91,4 @@ icon.svg            # 插件图标
 
 ## License
 
-[MIT](./LICENSE) © 2026 houwenqi
+[MIT](./LICENSE) © 2026 cx_x

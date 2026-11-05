@@ -174,9 +174,9 @@ export async function openRoom(options) {
       broker: broker.label,
       close() {
         if (closed) return;
-        closed = true;
         clearInterval(pingTimer);
         try { room.leave(); } catch (_) { /* nothing to tell */ }
+        closed = true;
         setTimeout(() => { try { client.close(); } catch (_) { /* gone */ } }, 80);
       },
     };

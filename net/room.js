@@ -7,7 +7,7 @@
  */
 
 export const PROTO = 1;
-export const APP_VERSION = '1.2.0';
+export const APP_VERSION = '1.2.1';
 
 /** Room codes avoid 0/O/1/I so they survive being read aloud or typed. */
 export const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -201,12 +201,16 @@ export class Room {
     this.state.seed = seed;
     this.state.startAt = startAt;
     this.state.durationMs = DRILLS[mode]?.durationMs ?? 0;
+    this.state.matchId = `${this.playerId}:${startAt}:${++this.seq}`;
+    this.state.rematchRequested = null;
+    this.opponentProgress = null;
     this.state.results = {};
     this.results = {};
     this.publishState();
     this.publish('ev', {
       type: 'start',
       from: this.playerId,
+      matchId: this.state.matchId,
       mode,
       seed,
       startAt,
@@ -234,6 +238,7 @@ export class Room {
     this.publish('ev', {
       type: 'progress',
       from: this.playerId,
+      matchId: this.state.matchId,
       score,
       hits,
       misses,
@@ -244,16 +249,35 @@ export class Room {
   }
 
   finish(result) {
-    this.publish('ev', { type: 'finish', from: this.playerId, result, v: PROTO });
-    if (this.isHost) this.recordResult(this.playerId, result);
+    if (!this.state.matchId || this.results[this.playerId]) return;
+    this.recordResult(this.playerId, result);
+    this.publish('ev', { type: 'finish', from: this.playerId, matchId: this.state.matchId, result, v: PROTO });
   }
 
   rematch() {
+    if (this.state.phase !== 'finished') return;
     if (this.isHost) {
       this.startMatch(this.state.mode);
       return;
     }
-    this.publish('cmd', { type: 'rematch', from: this.playerId });
+    this.publish('cmd', { type: 'rematch', from: this.playerId, matchId: this.state.matchId });
+  }
+
+  returnToLobby() {
+    if (this.state.phase !== 'finished') return;
+    if (!this.isHost) {
+      this.publish('cmd', { type: 'lobby', from: this.playerId, matchId: this.state.matchId });
+      return;
+    }
+    this.state.phase = 'lobby';
+    this.state.startAt = 0;
+    this.state.matchId = null;
+    this.state.rematchRequested = null;
+    this.state.players = this.state.players.map((player) => ({ ...player, ready: false }));
+    this.state.results = {};
+    this.results = {};
+    this.opponentProgress = null;
+    this.publishState();
   }
 
   leave() {
@@ -293,14 +317,20 @@ export class Room {
   handleState(next) {
     if (next.code !== this.code) return 'wrong-room';
     if (next.proto !== PROTO) return 'proto-mismatch';
+    // The host owns the state. Its MQTT subscription echoes older snapshots.
+    if (this.isHost) return 'self-state';
     const previousPhase = this.state.phase;
+    const sameMatch = Boolean(next.matchId && next.matchId === this.state.matchId);
+    const localResult = sameMatch ? this.results[this.playerId] : null;
+    if (!sameMatch) this.opponentProgress = null;
     this.state = {
       ...this.state,
       ...next,
       players: next.players.map((player) => ({ ...player })),
       results: { ...next.results },
     };
-    this.results = { ...next.results };
+    if (localResult && !this.state.results[this.playerId]) this.state.results[this.playerId] = localResult;
+    this.results = { ...this.state.results };
     if (this.role === 'guest' && previousPhase !== next.phase) {
       return `phase:${next.phase}`;
     }
@@ -309,6 +339,12 @@ export class Room {
 
   handleEvent(message) {
     if (message.type === 'start') {
+      if (this.isHost || message.from !== this.state.hostId) return 'ignored-start';
+      if (this.state.matchId === message.matchId) return 'same-match';
+      this.state.matchId = message.matchId;
+      this.state.results = {};
+      this.results = {};
+      this.opponentProgress = null;
       this.state.phase = 'countdown';
       this.state.mode = message.mode;
       this.state.seed = message.seed;
@@ -317,12 +353,16 @@ export class Room {
       this.state.rounds = message.rounds;
       return 'start';
     }
+    if (message.type === 'progress' || message.type === 'finish') {
+      if (!this.state.matchId || message.matchId !== this.state.matchId) return 'old-match';
+      if (!this.state.players.some((player) => player.id === message.from)) return 'unknown-player';
+    }
     if (message.type === 'progress') {
-      this.opponentProgress = message;
+      if (!this.results[message.from]) this.opponentProgress = message;
       return 'progress';
     }
     if (message.type === 'finish') {
-      this.recordResult(message.from, message.result);
+      if (this.isHost && !this.results[message.from]) this.recordResult(message.from, message.result);
       return 'finish';
     }
     if (message.type === 'pong') {
@@ -370,9 +410,15 @@ export class Room {
       this.publish('ev', { type: 'pong', from: this.playerId, t0: message.t0, t1: this.now(), v: PROTO });
       return 'ping';
     }
-    if (message.type === 'rematch') {
-      this.startMatch(this.state.mode);
-      return 'rematch';
+    if (message.type === 'rematch' || message.type === 'lobby') {
+      if (this.state.phase !== 'finished' || message.matchId !== this.state.matchId) return 'old-match';
+      if (!this.state.players.some((player) => player.id === message.from)) return 'unknown-player';
+      if (message.type === 'lobby') this.returnToLobby();
+      else {
+        this.state.rematchRequested = message.from;
+        this.publishState();
+      }
+      return message.type;
     }
     return 'command';
   }

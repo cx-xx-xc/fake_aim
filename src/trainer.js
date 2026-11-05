@@ -39,6 +39,11 @@
         rematch: 'Rematch', waitingHost: 'Waiting for the host…', results: 'Result',
         offline: 'Relay connection lost.', roomMissing: 'No live room with that code yet.',
         cancel: 'Back', syncHint: 'Clock sync in progress…',
+        backToRoom: 'Back to room', waitingResult: 'Score submitted. Waiting for your rival…',
+        requestRematch: 'Request rematch', rematchRequested: 'Rematch requested',
+        rivalWantsRematch: 'Your rival requested a rematch.',
+        clickRule: 'More hits wins. Equal hits is a draw.',
+        reactionRule: 'Lower average reaction time wins. Equal times is a draw.',
       },
       zh: {
         title: '瞄准训练', open: '打开瞄准训练', close: '关闭',
@@ -68,6 +73,11 @@
         rematch: '再来一局', waitingHost: '等待房主开始…', results: '结果',
         offline: '中继连接已断开。', roomMissing: '还没有这个房间码的对局。',
         cancel: '返回', syncHint: '正在同步时钟…',
+        backToRoom: '返回房间', waitingResult: '成绩已提交，等待对手完成…',
+        requestRematch: '请求再来一局', rematchRequested: '已请求重开',
+        rivalWantsRematch: '对手请求再来一局。',
+        clickRule: '命中数多者获胜，命中数相同则平局。',
+        reactionRule: '平均反应时间短者获胜，时间相同则平局。',
       },
     };
 
@@ -470,6 +480,8 @@
           mode: room.state.mode,
           seed: room.state.seed,
           startAt: room.state.startAt,
+          matchId: room.state.matchId,
+          rematchRequested: room.state.rematchRequested,
           durationMs: room.state.durationMs,
           offset: room.clock.offset,
           rtt: room.clock.rtt,
@@ -597,7 +609,7 @@
           !done && h('button', {
             type: 'button',
             className: 'at-target',
-            style: { left: target.x + '%', top: target.y + '%' },
+            style: { left: target.x * 100 + '%', top: target.y * 100 + '%' },
             onPointerDown: hit,
             'aria-label': t('hits'),
           }),
@@ -665,7 +677,7 @@
           stage === 'ready' && h('button', {
             type: 'button',
             className: 'at-target',
-            style: { left: spot.x + '%', top: spot.y + '%' },
+            style: { left: spot.x * 100 + '%', top: spot.y * 100 + '%' },
             onPointerDown: hit,
             'aria-label': t('now'),
           }),
@@ -699,15 +711,18 @@
           h('span', { className: 'at-banner-big' }, verdict),
           pending ? h('span', { className: 'at-note' }, t('waitingHost')) : null,
         ),
-        h('div', { className: 'at-duel-line' }, h('span', null, t('you')), h('strong', null, mine ? mine.score : '—')),
-        h('div', { className: 'at-duel-line' }, h('span', null, t('rival')), h('strong', null, theirs ? theirs.score : '—')),
+        h('p', { className: 'at-note' }, lowerWins ? t('reactionRule') : t('clickRule')),
+        h('div', { className: 'at-duel-line' }, h('span', null, t('you')), h('strong', null, mine ? mine.score + (lowerWins ? ' ' + t('ms') : '') : '—')),
+        h('div', { className: 'at-duel-line' }, h('span', null, t('rival')), h('strong', null, theirs ? theirs.score + (lowerWins ? ' ' + t('ms') : '') : '—')),
+        snap.role === 'host' && snap.rematchRequested ? h('p', { className: 'at-note' }, t('rivalWantsRematch')) : null,
         h('div', { className: 'at-row' },
           h('button', {
             className: 'at-primary',
             type: 'button',
-            disabled: snap.role !== 'host',
-            onClick: () => vs.act((room) => room.startMatch(snap.mode)),
-          }, t('rematch')),
+            disabled: pending || (snap.role !== 'host' && snap.rematchRequested === snap.me),
+            onClick: () => vs.act((room) => room.rematch()),
+          }, snap.role === 'host' ? t('rematch') : snap.rematchRequested === snap.me ? t('rematchRequested') : t('requestRematch')),
+          h('button', { className: 'at-ghost', type: 'button', onClick: () => vs.act((room) => room.returnToLobby()) }, t('backToRoom')),
           h('button', { className: 'at-ghost', type: 'button', onClick: () => vs.leave() }, t('leaveRoom')),
         ),
       );
@@ -722,9 +737,9 @@
       const me = snap ? snap.players.find((player) => player.id === snap.me) : null;
       const rival = snap ? snap.players.find((player) => player.id !== snap.me) : null;
       const startLocal = snap && snap.startAt ? snap.startAt - snap.offset : 0;
-      const submitted = snap ? Object.keys(snap.results).length : 0;
-      const finished = snap ? (snap.phase === 'finished' || (submitted > 0 && submitted >= snap.players.length)) : false;
-      const playing = Boolean(snap && startLocal && now >= startLocal && !finished);
+      const finished = Boolean(snap && snap.phase === 'finished');
+      const submitted = Boolean(snap && snap.results[snap.me]);
+      const playing = Boolean(snap && startLocal && now >= startLocal && !finished && !submitted);
 
       function copyCode() {
         const code = snap ? snap.code : '';
@@ -780,6 +795,15 @@
 
       if (finished) return h(DuelResults, { vs, t });
 
+      if (submitted) {
+        const result = snap.results[snap.me];
+        return h('div', { className: 'at-vs' },
+          h('p', { className: 'at-note' }, vs.status.phase === 'offline' ? t('offline') : t('waitingResult')),
+          h('div', { className: 'at-duel-line' }, h('span', null, t('you')), h('strong', null, result.score + (snap.mode === 'reaction' ? ' ' + t('ms') : ''))),
+          h('button', { className: 'at-ghost', type: 'button', onClick: () => vs.leave() }, t('leaveRoom')),
+        );
+      }
+
       if (playing) {
         return h('div', { className: 'at-vs' },
           h('div', { className: 'at-duel-line' },
@@ -787,8 +811,9 @@
             h('strong', null, snap.opponent ? snap.opponent.score : 0),
           ),
           snap.mode === 'reaction'
-            ? h(DuelReaction, { key: snap.seed, vs, t, seed: snap.seed, rounds: 8 })
-            : h(DuelClick, { key: snap.seed, vs, t, seed: snap.seed, durationMs: snap.durationMs || 30000, startLocal }),
+            ? h(DuelReaction, { key: snap.matchId, vs, t, seed: snap.seed, rounds: 8 })
+            : h(DuelClick, { key: snap.matchId, vs, t, seed: snap.seed, durationMs: snap.durationMs || 30000, startLocal }),
+          h('button', { className: 'at-ghost', type: 'button', onClick: () => vs.leave() }, t('leaveRoom')),
         );
       }
 
@@ -800,6 +825,7 @@
             h('span', { className: 'at-label' }, t('matchIn')),
           ),
           h('div', { className: 'at-duel-line' }, h('span', null, t('rival')), h('strong', null, rival ? rival.name : '—')),
+          h('button', { className: 'at-ghost', type: 'button', onClick: () => vs.leave() }, t('leaveRoom')),
         );
       }
 

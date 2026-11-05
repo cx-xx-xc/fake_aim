@@ -1,6 +1,6 @@
 {
   "name": "@local/aim-trainer",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": false,
   "description": "Aim trainer floating window for the DeepSeek Harness Web UI: click, reaction and tracking drills, plus room-code 1v1 duels, in a draggable Aimlabs-style window.",
   "type": "module",

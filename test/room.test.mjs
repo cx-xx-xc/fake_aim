@@ -133,6 +133,104 @@ test('host and guest reach the same phase after a scripted match', () => {
   assert.deepEqual(host.state.results, { p2: { score: 40 }, p1: { score: 35 } });
 });
 
+function pairedRooms() {
+  const queue = [];
+  const emit = (sender) => (message) => queue.push({ sender, ...JSON.parse(JSON.stringify(message)) });
+  const host = new Room({ role: 'host', playerId: 'p1', name: 'host', emit: emit('host'), now: () => 100000 });
+  const guest = new Room({ role: 'guest', playerId: 'p2', name: 'guest', emit: emit('guest'), now: () => 100000 });
+  const deliver = () => {
+    let count = 0;
+    while (queue.length) {
+      assert.ok(count++ < 100, 'message loop terminates');
+      const message = queue.shift();
+      // MQTT echoes publications to the sender too; delivery is asynchronous.
+      host.handle(message.channel, message.payload);
+      guest.handle(message.channel, message.payload);
+    }
+  };
+  host.createRoom('ABC234');
+  guest.joinRoom('ABC234');
+  deliver();
+  host.startMatch('click');
+  deliver();
+  return { host, guest, queue, deliver };
+}
+
+test('delayed self snapshots cannot erase the final score', () => {
+  const { host, guest, queue, deliver } = pairedRooms();
+  guest.finish({ score: 40 });
+  const guestFinish = queue.shift();
+  host.finish({ score: 35 });
+  // Guest's result reaches the host before the host receives its older snapshot.
+  host.handle(guestFinish.channel, guestFinish.payload);
+  const olderSnapshot = queue.shift();
+  host.handle(olderSnapshot.channel, olderSnapshot.payload);
+  assert.equal(host.state.phase, 'finished', 'old echo must not remount an expired drill');
+  assert.deepEqual(host.state.results.p2, { score: 40 });
+  deliver();
+  assert.equal(host.state.phase, 'finished');
+  assert.deepEqual(host.state.results, { p1: { score: 35 }, p2: { score: 40 } });
+  assert.deepEqual(guest.state.results, host.state.results);
+});
+
+test('guest keeps its submitted result while awaiting the host', () => {
+  const { guest } = pairedRooms();
+  guest.finish({ score: 27 });
+  assert.deepEqual(guest.state.results.p2, { score: 27 });
+  assert.notEqual(guest.state.phase, 'finished');
+});
+
+test('old match messages cannot change a rematch score or progress', () => {
+  const { host, guest, queue, deliver } = pairedRooms();
+  guest.reportProgress({ score: 40 });
+  const oldProgress = queue.shift();
+  guest.finish({ score: 40 });
+  const oldFinish = JSON.parse(JSON.stringify(queue[0]));
+  host.finish({ score: 35 });
+  deliver();
+  host.rematch();
+  deliver();
+  host.handle(oldProgress.channel, oldProgress.payload);
+  host.handle(oldFinish.channel, oldFinish.payload);
+  assert.deepEqual(host.state.results, {});
+  assert.equal(host.opponentProgress, null);
+  assert.deepEqual(guest.state.results, {});
+});
+
+test('guest can request a rematch and return both players to the lobby', () => {
+  const { host, guest, deliver } = pairedRooms();
+  guest.finish({ score: 40 });
+  host.finish({ score: 35 });
+  deliver();
+  guest.rematch();
+  deliver();
+  assert.equal(host.state.phase, 'finished', 'host decides when to restart');
+  assert.equal(host.state.rematchRequested, 'p2');
+  guest.returnToLobby();
+  deliver();
+  for (const room of [host, guest]) {
+    assert.equal(room.state.phase, 'lobby');
+    assert.equal(room.state.startAt, 0);
+    assert.deepEqual(room.state.results, {});
+    assert.ok(room.state.players.every((player) => !player.ready));
+  }
+});
+
+test('duplicate finish submissions cannot overwrite a completed score', () => {
+  const { host, guest, queue, deliver } = pairedRooms();
+  guest.finish({ score: 40 });
+  const repeated = JSON.parse(JSON.stringify(queue[0]));
+  host.finish({ score: 35 });
+  deliver();
+  repeated.payload.result.score = 0;
+  host.handle(repeated.channel, repeated.payload);
+  host.finish({ score: 0 });
+  guest.finish({ score: 0 });
+  deliver();
+  assert.deepEqual(host.state.results, { p1: { score: 35 }, p2: { score: 40 } });
+  assert.deepEqual(guest.state.results, host.state.results);
+});
+
 const failed = results.filter((result) => !result.ok);
 for (const result of results) {
   console.log(`${result.ok ? 'PASS' : 'FAIL'}  ${result.name}`);

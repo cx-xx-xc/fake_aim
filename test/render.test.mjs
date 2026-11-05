@@ -143,14 +143,18 @@ assert.equal(registered.position.name, 'shell.overlay');
 assert.ok(dicts.get('en') && dicts.get('zh'), 'both locales registered');
 
 const seenClasses = new Set();
+const seenComponents = new Map();
+const seenElements = [];
+const seenText = [];
 const visit = (node, pathName, overrides) => {
   if (node == null || node === false || node === true) return 0;
   if (Array.isArray(node)) {
     return node.reduce((sum, child, index) => sum + visit(child, `${pathName}.${index}`, overrides), 0);
   }
-  if (typeof node !== 'object') return 0;
+  if (typeof node !== 'object') { seenText.push(String(node)); return 0; }
   const { type, props } = node;
   if (typeof type === 'function') {
+    seenComponents.set(type.name, type);
     const previous = cursor;
     cursor = { path: pathName, index: 0, override: overrides[pathName] || null };
     let output;
@@ -161,6 +165,7 @@ const visit = (node, pathName, overrides) => {
     }
     return 1 + visit(output, `${pathName}>`, overrides);
   }
+  seenElements.push(node);
   if (props && typeof props.className === 'string') seenClasses.add(props.className);
   const children = props ? props.children : null;
   return children == null ? 1 : 1 + visit(children, pathName, overrides);
@@ -189,4 +194,47 @@ seenClasses.clear();
 visit(React.createElement(Trainer, {}), 'root', { root: { 0: true, 1: 'records' } });
 assert.ok(seenClasses.has('at-records'), 'records view rendered');
 
-console.log('[render] PASS  bundle mounts; launcher, train, versus and records views render');
+// 5. Exercise the actual versus components with final/partial score snapshots.
+const VersusPanel = seenComponents.get('VersusPanel');
+assert.ok(VersusPanel);
+const calls = [];
+const actions = {
+  rematch: () => calls.push('rematch'),
+  returnToLobby: () => calls.push('lobby'),
+};
+const baseSnap = {
+  me: 'p1', role: 'host', phase: 'finished', mode: 'click', startAt: Date.now() - 40000,
+  players: [{ id: 'p1' }, { id: 'p2' }], results: { p1: { score: 35 }, p2: { score: 40 } },
+};
+function renderMatch(snap) {
+  seenClasses.clear(); seenElements.length = 0; seenText.length = 0;
+  const vs = { stage: 'room', status: { phase: 'online' }, snap,
+    act: (fn) => fn(actions), leave: () => calls.push('leave') };
+  visit(React.createElement(VersusPanel, { vs, t: (key) => key }), 'match', {});
+}
+function button(label) {
+  const found = seenElements.find((node) => node.type === 'button' && node.props.children === label);
+  assert.ok(found, `button ${label} exists`);
+  return found;
+}
+renderMatch(baseSnap);
+assert.ok(seenText.includes('youLose'));
+button('rematch').props.onClick();
+button('backToRoom').props.onClick();
+button('leaveRoom').props.onClick();
+assert.deepEqual(calls, ['rematch', 'lobby', 'leave']);
+renderMatch({ ...baseSnap, me: 'p2', role: 'guest' });
+assert.ok(seenText.includes('youWin'));
+assert.equal(Boolean(button('requestRematch').props.disabled), false);
+button('requestRematch').props.onClick();
+button('backToRoom');
+renderMatch({ ...baseSnap, mode: 'reaction', results: { p1: { score: 230 }, p2: { score: 270 } } });
+assert.ok(seenText.includes('youWin'), 'lower reaction time wins');
+assert.ok(seenText.includes('230 ms'), 'reaction score includes a unit');
+renderMatch({ ...baseSnap, results: { p1: { score: 35 }, p2: { score: 35 } } });
+assert.ok(seenText.includes('draw'));
+renderMatch({ ...baseSnap, phase: 'playing', results: { p1: { score: 35 } } });
+assert.ok(seenText.includes('waitingResult'));
+assert.equal(seenClasses.has('at-arena'), false, 'submitted player never restarts the expired drill');
+button('leaveRoom');
+console.log('[render] PASS  mounted views, score verdicts, room actions and waiting-state exit');

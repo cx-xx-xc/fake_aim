@@ -34,12 +34,14 @@ for (const name of NET) {
 }
 
 const body = await readFile(path.join(root, 'src', 'trainer.js'), 'utf8');
+const updates = inlineModule(await readFile(path.join(root, 'src', 'updates.js'), 'utf8'), '../src/updates.js');
 
 const out = `window.__ModuleLoader__.load({
   id: '@local/aim-trainer',
   factory(require) {
     const React = require('react');
 ${parts.join('')}
+${updates}
     // ---- src/trainer.js ----
 ${body.trimEnd()}
   },

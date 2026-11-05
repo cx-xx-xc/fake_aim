@@ -23,11 +23,9 @@ const enStart = dictSource.indexOf('en: {');
 const zhStart = dictSource.indexOf('zh: {');
 assert.ok(zhStart > enStart, 'both locales present');
 
-const keysOf = (text) => [...text.matchAll(/(?:^|[\s,{])([A-Za-z][A-Za-z0-9]*):/g)]
-  .map((match) => match[1])
-  .filter((key) => key !== 'en' && key !== 'zh');
-const en = new Set(keysOf(dictSource.slice(enStart, zhStart)));
-const zh = new Set(keysOf(dictSource.slice(zhStart)));
+const dictionaries = new Function(`${dictSource}; return DICTS;`)();
+const en = new Set(Object.keys(dictionaries.en));
+const zh = new Set(Object.keys(dictionaries.zh));
 
 assert.deepEqual([...en].filter((key) => !zh.has(key)), [], 'zh is missing keys present in en');
 assert.deepEqual([...zh].filter((key) => !en.has(key)), [], 'en is missing keys present in zh');

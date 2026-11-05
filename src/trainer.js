@@ -12,6 +12,14 @@
 
     const DICTS = {
       en: {
+        updateTitle: 'Plugin updates', currentVersion: 'Current version', latestVersion: 'Latest on GitHub',
+        checkUpdates: 'Check for updates', checkingUpdates: 'Checking…', updateAvailable: 'A newer version is available.',
+        updateCurrent: 'You are up to date.', updateAhead: 'This local version is newer than GitHub.',
+        updateFailed: 'Check failed. Verify your connection to GitHub and retry.',
+        updateSteps: 'Copy the address below. In the Plugins page, remove Aim Trainer, then use Install to install this address. Refresh the page afterwards. Both players should update and create a new room.',
+        updateCopy: 'Copy installation address', updateCopyFailed: 'Copy failed. Select and copy the address below.',
+        updateSource: 'View checked commit', updatePrivacy: 'Checks GitHub only when clicked. Does not install automatically.',
+        updateLocalHint: 'Local Git clone: run git pull in its directory instead, then refresh the page.',
         title: 'Aim Trainer', open: 'Open Aim Trainer', close: 'Close',
         center: 'Centre window', drag: 'Drag to move',
         trainTab: 'Drills', recordTab: 'Records',
@@ -46,6 +54,14 @@
         reactionRule: 'Lower average reaction time wins. Equal times is a draw.',
       },
       zh: {
+        updateTitle: '插件更新', currentVersion: '当前版本', latestVersion: 'GitHub 最新版本',
+        checkUpdates: '检查更新', checkingUpdates: '正在检查…', updateAvailable: '发现新版本。',
+        updateCurrent: '已是最新版本。', updateAhead: '当前本地版本比 GitHub 更新。',
+        updateFailed: '检查失败，请确认能访问 GitHub 后重试。',
+        updateSteps: '复制下方地址，在插件页面移除「瞄准训练」，再通过「安装」填入此地址。安装后刷新页面。双方都更新后，请重新创建房间。',
+        updateCopy: '复制安装地址', updateCopyFailed: '复制失败，请手动选中并复制下方地址。',
+        updateSource: '查看本次检查的提交', updatePrivacy: '点击时才访问 GitHub，不会自动安装。',
+        updateLocalHint: '如果通过本地 Git 克隆安装，在克隆目录执行 git pull 后刷新即可。',
         title: '瞄准训练', open: '打开瞄准训练', close: '关闭',
         center: '窗口回到中间', drag: '拖动移动窗口',
         trainTab: '训练', recordTab: '记录',
@@ -1011,12 +1027,88 @@
       };
     }
 
+    function createUpdatePanel(ctx, t) {
+      return function UpdatePanel({ view }) {
+        const [result, setResult] = React.useState(null);
+        const [busy, setBusy] = React.useState(false);
+        const [copyStatus, setCopyStatus] = React.useState('');
+        const request = React.useRef(null);
+        const [, setLocale] = React.useState(0);
+        React.useEffect(() => ctx.locale.subscribe(() => setLocale((n) => n + 1)), []);
+        React.useEffect(() => () => {
+          if (request.current) {
+            clearTimeout(request.current.timer);
+            request.current.controller.abort();
+            request.current = null;
+          }
+        }, []);
+        if (view !== 'page') return null;
+
+        async function check() {
+          if (request.current) return;
+          const controller = new AbortController();
+          const pending = { controller, timer: setTimeout(() => controller.abort(), 12000) };
+          request.current = pending;
+          setBusy(true);
+          setResult(null);
+          setCopyStatus('');
+          try {
+            const next = await checkForUpdates(APP_VERSION, { signal: controller.signal });
+            if (request.current === pending) setResult(next);
+          } catch (_) {
+            if (request.current === pending) setResult({ status: 'error' });
+          } finally {
+            clearTimeout(pending.timer);
+            if (request.current === pending) { request.current = null; setBusy(false); }
+          }
+        }
+        async function copy() {
+          try {
+            await navigator.clipboard.writeText(result.spec);
+            setCopyStatus('copied');
+          } catch (_) { setCopyStatus('updateCopyFailed'); }
+        }
+        const statusKey = { available: 'updateAvailable', current: 'updateCurrent', ahead: 'updateAhead', error: 'updateFailed' };
+        return h('section', { className: 'at-update', 'aria-label': t('updateTitle') },
+          h('style', null, `
+            .at-update { display:flex; flex-direction:column; gap:12px; padding:16px; margin:16px 0; border:1px solid var(--dsw-alias-border-l1); border-radius:12px; background:var(--dsw-alias-bg-layer-1); color:var(--dsw-alias-label-primary); font:inherit; font-size:14px; line-height:1.6; }
+            .at-update p, .at-update h3 { margin:0; }
+            .at-update h3 { font-size:15px; font-weight:600; }
+            .at-update-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+            .at-update button { border:1px solid var(--dsw-alias-border-l2); border-radius:8px; min-height:36px; padding:6px 14px; background:var(--dsw-alias-bg-layer-2); color:var(--dsw-alias-label-primary); font:inherit; cursor:pointer; }
+            .at-update button:disabled { opacity:.6; cursor:wait; }
+            .at-update button:focus-visible, .at-update a:focus-visible, .at-update textarea:focus-visible { outline:2px solid var(--dsw-alias-brand-primary); outline-offset:2px; }
+            .at-update textarea { width:100%; min-height:74px; resize:vertical; padding:10px; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-base); color:var(--dsw-alias-label-primary); font:inherit; overflow-wrap:anywhere; }
+            .at-update a { color:var(--dsw-alias-brand-primary); }
+            .at-update-note { color:var(--dsw-alias-label-secondary); font-size:13px; }
+          `),
+          h('h3', null, t('updateTitle')),
+          h('p', null, `${t('currentVersion')}: ${APP_VERSION}`),
+          h('div', { className: 'at-update-actions' }, h('button', { type: 'button', disabled: busy, onClick: check }, t(busy ? 'checkingUpdates' : 'checkUpdates'))),
+          h('div', { role: 'status', 'aria-live': 'polite' }, busy ? t('checkingUpdates') : result ? t(statusKey[result.status]) : ''),
+          result?.version && h('p', null, `${t('latestVersion')}: ${result.version}`),
+          result?.status === 'available' && h(React.Fragment, null,
+            h('p', null, t('updateSteps')),
+            h('textarea', { readOnly: true, value: result.spec, 'aria-label': t('updateCopy'), spellCheck: false }),
+            h('div', { className: 'at-update-actions' },
+              h('button', { type: 'button', onClick: copy }, t('updateCopy')),
+              h('a', { href: result.url, target: '_blank', rel: 'noopener noreferrer' }, t('updateSource')),
+            ),
+            h('p', { role: 'status' }, copyStatus ? t(copyStatus) : ''),
+            h('p', { className: 'at-update-note' }, t('updateLocalHint')),
+          ),
+          h('p', { className: 'at-update-note' }, t('updatePrivacy')),
+        );
+      };
+    }
+
     return {
       inject: ['slots', 'locale'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, 'en', DICTS.en));
         ctx.effect(() => ctx.locale.register(NS, 'zh', DICTS.zh));
         const t = ctx.locale.bind(NS);
+        ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({ name: 'plugins.bundle.config', key: '@local/aim-trainer' }, createUpdatePanel(ctx, t)));
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({ name: 'shell.overlay', id: 'aim-trainer', order: 80 }, createTrainer(ctx, t)));
       },
     };

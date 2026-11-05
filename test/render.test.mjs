@@ -121,6 +121,7 @@ assert.equal([...moduleExports.inject].join(','), 'slots,locale');
 
 const dicts = new Map();
 let registered = null;
+let updatePanel = null;
 const ctx = {
   effect: (fn) => { fn(); },
   locale: {
@@ -131,7 +132,10 @@ const ctx = {
   },
   slots: {
     inject: (name, fn) => fn(),
-    register: (position, component) => { registered = { position, component }; },
+    register: (position, component) => {
+      if (position.name === 'plugins.bundle.config') updatePanel = { position, component };
+      else registered = { position, component };
+    },
     list: () => [],
   },
 };
@@ -172,6 +176,16 @@ const visit = (node, pathName, overrides) => {
 };
 
 const Trainer = registered.component;
+assert.equal(updatePanel.position.key, '@local/aim-trainer');
+visit(React.createElement(updatePanel.component, { view: 'page' }), 'updates', {});
+assert.ok(seenText.some((text) => text.includes('1.2.2')), 'current version is visible');
+assert.ok(seenText.includes('checkUpdates'), 'check button rendered');
+visit(React.createElement(updatePanel.component, { view: 'page' }), 'updates-error', { 'updates-error': { 0: { status: 'error' } } });
+assert.ok(seenText.includes('updateFailed'), 'failure is shown explicitly');
+visit(React.createElement(updatePanel.component, { view: 'page' }), 'updates-available', { 'updates-available': { 0: { status: 'available', version: '1.3.0', spec: 'github:cx-xx-xc/fake_aim#abc', url: 'https://github.com/cx-xx-xc/fake_aim' } } });
+assert.ok(seenText.includes('updateSteps'), 'new version offers update instructions');
+assert.ok(seenElements.some((node) => node.type === 'textarea' && node.props.readOnly), 'installation target can be copied manually');
+
 
 // 1. Collapsed window: the launcher must still render.
 visit(React.createElement(Trainer, {}), 'root', {});

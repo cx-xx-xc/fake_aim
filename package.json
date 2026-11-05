@@ -1,0 +1,24 @@
+{
+  "name": "@local/aim-trainer",
+  "version": "1.1.0",
+  "private": false,
+  "description": "Aim trainer floating window for the DeepSeek Harness Web UI: click, reaction and tracking drills with a draggable Aimlabs-style window.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["dsh-plugin", "deepseek-harness", "aim-trainer", "aimlabs", "fps", "training"],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg", "README.md", "LICENSE"],
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+    }
+  }
+}

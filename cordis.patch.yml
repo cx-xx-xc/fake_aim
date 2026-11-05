@@ -1,0 +1,3 @@
+- insert:
+    - id: aim-trainer
+      name: '@local/aim-trainer'

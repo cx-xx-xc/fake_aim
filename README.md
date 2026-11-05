@@ -1,6 +1,6 @@
 # Aim Trainer for DeepSeek Harness
 
-一个跑在 [DeepSeek Harness](https://github.com/) Web UI 里的瞄准训练小工具：可拖动的浮动窗口，Aimlabs 风格深色界面，三种训练模式，成绩存在本地。
+一个跑在 DeepSeek Harness Web UI 里的瞄准训练小工具：可拖动的浮动窗口，Aimlabs 风格深色界面，三种训练模式，成绩存在本地。
 
 A floating aim-training window for the DeepSeek Harness Web UI. Draggable, Aimlabs-inspired dark panel, three drills, all records kept locally.
 
@@ -25,13 +25,13 @@ A floating aim-training window for the DeepSeek Harness Web UI. Draggable, Aimla
 在 Harness 的 **设置 → 插件 → 安装** 中填入本仓库地址：
 
 ```
-github:<owner>/<repo>
+github:cx-xx-xc/fake_aim
 ```
 
 或完整地址：
 
 ```
-https://github.com/<owner>/<repo>
+https://github.com/cx-xx-xc/fake_aim
 ```
 
 > 该插件是 Cordis bundle，安装后会自动注册到 `shell.overlay` 插槽，无需改配置文件。
@@ -39,7 +39,7 @@ https://github.com/<owner>/<repo>
 ### 方式二：克隆到工作区后用本地链接安装
 
 ```bash
-git clone https://github.com/<owner>/<repo>.git
+git clone https://github.com/cx-xx-xc/fake_aim.git
 ```
 
 然后在 Harness 插件管理器里把安装目标设为该目录的 `link:` 形式：

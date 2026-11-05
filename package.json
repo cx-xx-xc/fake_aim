@@ -6,6 +6,11 @@
   "type": "module",
   "license": "MIT",
   "keywords": ["dsh-plugin", "deepseek-harness", "aim-trainer", "aimlabs", "fps", "training"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cx-xx-xc/fake_aim.git"
+  },
+  "homepage": "https://github.com/cx-xx-xc/fake_aim#readme",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",

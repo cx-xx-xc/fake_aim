@@ -5,6 +5,7 @@
   "description": "Aim trainer floating window for the DeepSeek Harness Web UI: click, reaction and tracking drills with a draggable Aimlabs-style window.",
   "type": "module",
   "license": "MIT",
+  "author": "cx_x",
   "keywords": ["dsh-plugin", "deepseek-harness", "aim-trainer", "aimlabs", "fps", "training"],
   "repository": {
     "type": "git",

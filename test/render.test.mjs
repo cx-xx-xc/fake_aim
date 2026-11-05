@@ -178,7 +178,7 @@ const visit = (node, pathName, overrides) => {
 const Trainer = registered.component;
 assert.equal(updatePanel.position.key, '@local/aim-trainer');
 visit(React.createElement(updatePanel.component, { view: 'page' }), 'updates', {});
-assert.ok(seenText.some((text) => text.includes('1.2.2')), 'current version is visible');
+assert.ok(seenText.some((text) => text.includes('1.3.0')), 'current version is visible');
 assert.ok(seenText.includes('checkUpdates'), 'check button rendered');
 visit(React.createElement(updatePanel.component, { view: 'page' }), 'updates-error', { 'updates-error': { 0: { status: 'error' } } });
 assert.ok(seenText.includes('updateFailed'), 'failure is shown explicitly');
@@ -215,10 +215,12 @@ const calls = [];
 const actions = {
   rematch: () => calls.push('rematch'),
   returnToLobby: () => calls.push('lobby'),
+  setReactionRounds: (rounds) => calls.push(['rounds', rounds]),
+  startMatch: (mode, options) => calls.push(['start', mode, options]),
 };
 const baseSnap = {
   me: 'p1', role: 'host', phase: 'finished', mode: 'click', startAt: Date.now() - 40000,
-  players: [{ id: 'p1' }, { id: 'p2' }], results: { p1: { score: 35 }, p2: { score: 40 } },
+  players: [{ id: 'p1', name: 'Host', online: true, ready: true }, { id: 'p2', name: 'Guest', online: true, ready: true }], results: { p1: { score: 35 }, p2: { score: 40 } },
 };
 function renderMatch(snap) {
   seenClasses.clear(); seenElements.length = 0; seenText.length = 0;
@@ -251,4 +253,59 @@ renderMatch({ ...baseSnap, phase: 'playing', results: { p1: { score: 35 } } });
 assert.ok(seenText.includes('waitingResult'));
 assert.equal(seenClasses.has('at-arena'), false, 'submitted player never restarts the expired drill');
 button('leaveRoom');
-console.log('[render] PASS  mounted views, score verdicts, room actions and waiting-state exit');
+// Five-player standings: tied first, competition ranks, and withdrawal last.
+const players = ['p1', 'p2', 'p3', 'p4', 'p5'].map((id) => ({ id, name: id, online: true, ready: true }));
+const five = { ...baseSnap, participantIds: players.map((player) => player.id), players,
+  results: { p1: { score: 25 }, p2: { score: 50 }, p3: { score: 50 }, p4: { score: 10 }, p5: { score: 0, dnf: true, withdrawn: true } } };
+renderMatch(five);
+assert.ok(seenText.includes('youLose'), 'third place is not declared winner');
+assert.deepEqual(seenElements.filter((node) => node.props.className === 'at-rank').map((node) => node.props.children), [1, 1, 3, 4, '—']);
+assert.deepEqual(seenElements.filter((node) => node.props.className === 'at-player-value').map((node) => node.props.children), ['50', '50', '25', '10', 'withdrawn']);
+renderMatch({ ...five, me: 'p2' });
+assert.ok(seenText.includes('draw'), 'tied leading score is a draw for the leaders');
+renderMatch({ ...five, mode: 'reaction', results: { p1: { score: 250 }, p2: { score: 300 }, p3: { score: 200 }, p4: { score: 270 }, p5: { score: 0, dnf: true } } });
+assert.deepEqual(seenElements.filter((node) => node.props.className === 'at-player-value').map((node) => node.props.children), ['200 ms', '250 ms', '270 ms', '300 ms', 'withdrawn'], 'DNF zero never wins reaction mode');
+// Lobby controls: integer choices 5..20, host-only, and exact option used to start.
+const lobby = { ...five, hostId: 'p1', phase: 'lobby', mode: 'reaction', rounds: 20, startAt: 0, results: {}, participantIds: [] };
+renderMatch(lobby);
+assert.ok(seenText.some((text) => text.includes('5 / 5')), 'all five room slots shown');
+let select = seenElements.find((node) => node.type === 'select');
+assert.equal(select.props.disabled, false);
+assert.equal(select.props.value, 20);
+assert.deepEqual(seenElements.filter((node) => node.type === 'option').map((node) => node.props.value), Array.from({length: 16}, (_, index) => index + 5));
+select.props.onChange({ target: { value: '5' } });
+assert.deepEqual(calls.at(-1), ['rounds', 5]);
+assert.equal(button('startMatch').props.disabled, false);
+button('startMatch').props.onClick();
+assert.deepEqual(calls.at(-1).slice(0, 2), ['start', 'reaction']);
+assert.equal(calls.at(-1)[2].rounds, 20);
+renderMatch({ ...lobby, role: 'guest', me: 'p2' });
+assert.equal(seenElements.find((node) => node.type === 'select').props.disabled, true);
+assert.equal(button('startMatch').props.disabled, true);
+renderMatch({ ...lobby, players: players.slice(0, 1) });
+assert.equal(button('startMatch').props.disabled, true, 'one player cannot start');
+renderMatch({ ...lobby, players: players.slice(0, 2) });
+assert.equal(button('startMatch').props.disabled, false, 'two ready players can start');
+renderMatch({ ...lobby, players: players.map((player) => player.id === 'p5' ? { ...player, ready: false } : player) });
+assert.equal(button('startMatch').props.disabled, true, 'every joined online player must be ready');
+// The configured rounds reach the drill; all rivals have independent progress.
+for (const rounds of [5, 20]) {
+  renderMatch({ ...lobby, phase: 'playing', rounds, participantIds: players.map((p) => p.id), startAt: Date.now() - 1000, offset: 0,
+    progress: { p2: { hits: 2, score: 230 }, p3: { hits: 4, score: 260 } } });
+  assert.ok(seenText.includes('1/' + rounds), 'reaction drill uses selected round total');
+  assert.ok(seenText.includes('2/' + rounds) && seenText.includes('4/' + rounds), 'rival round progress stays separate');
+}
+renderMatch({ ...lobby, role: 'guest', me: 'p2', players: players.map((player) => player.id === 'p1' ? { ...player, online: false } : player) });
+assert.ok(seenText.includes('hostLeft'));
+button('leaveRoom');
+// Hiding the window or selecting another tab keeps a connected match mounted.
+for (const [open, tab] of [[false, 'versus'], [true, 'records']]) {
+  seenElements.length = 0; seenText.length = 0;
+  visit(React.createElement(Trainer, {}), 'retained', { retained: {
+    0: open, 1: tab, 10: 'room', 12: { phase: 'online' },
+    13: { ...lobby, phase: 'playing', startAt: Date.now() - 1000, offset: 0 },
+  } });
+  assert.ok(seenText.includes('1/20'), 'the reaction drill stays mounted when hidden');
+  if (!open) assert.equal(seenElements.find((node) => node.type === 'section' && node.props.className === 'at-win').props.style.display, 'none');
+}
+console.log('[render] PASS  views, five-player standings, withdrawals, host round controls, readiness and retained drills');

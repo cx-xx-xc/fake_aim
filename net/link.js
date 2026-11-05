@@ -83,6 +83,12 @@ export async function openRoom(options) {
     let probed = false;
     let pinged = 0;
     let pingTimer = 0;
+    let initialState = null;
+    let resolveAdmission;
+    let rejectAdmission;
+    const admission = new Promise((resolve, reject) => { resolveAdmission = resolve; rejectAdmission = reject; });
+    // Host connections never wait on admission.
+    admission.catch(() => {});
 
     const publishOut = ({ channel, payload, retain }) => {
       if (!code || closed) return;
@@ -104,9 +110,14 @@ export async function openRoom(options) {
       } catch (_) {
         return;
       }
-      if (channel === 'state' && parsed && parsed.code === code) probed = true;
+      if (channel === 'state' && parsed && parsed.code === code) {
+        probed = true;
+        initialState = parsed;
+      }
       if (!room) return;
       room.handle(channel, parsed);
+      if (room.joinError) rejectAdmission(new Error(room.joinError));
+      if (channel === 'state' && room.state.players.some((player) => player.id === playerId && player.online)) resolveAdmission();
       onUpdate();
     });
 
@@ -148,10 +159,32 @@ export async function openRoom(options) {
       await wait(PROBE_MS);
     }
 
-    room = new Room({ role, playerId, name, emit: publishOut });
+    room = new Room({ role, playerId, name, emit: publishOut, ...(options.app ? { app: options.app } : {}) });
 
     if (role === 'host') room.createRoom(code);
-    else room.joinRoom(code);
+    else {
+      room.code = code;
+      if (initialState && initialState.app !== room.app) {
+        closed = true;
+        try { client.close(); } catch (_) { /* already down */ }
+        onStatus({ phase: 'error', broker: broker.label, reason: 'app-mismatch' });
+        throw new Error('app-mismatch');
+      }
+      if (initialState) room.handle('state', initialState);
+      room.joinRoom(code);
+      try {
+        await withTimeout(admission, timeoutMs);
+      } catch (error) {
+        closed = true;
+        try { client.close(); } catch (_) { /* already down */ }
+        if (['room-full', 'match-in-progress', 'app-mismatch'].includes(error.message)) {
+          onStatus({ phase: 'error', broker: broker.label, reason: error.message });
+          throw error;
+        }
+        lastError = error;
+        continue;
+      }
+    }
 
     if (role === 'guest') {
       // The offset estimate needs a few samples; ping fast at first, then relax.

@@ -418,14 +418,14 @@ window.__ModuleLoader__.load({
      */
 
     const PROTO = 1;
-    const APP_VERSION = '1.2.2';
+    const APP_VERSION = '1.3.0';
 
     /** Room codes avoid 0/O/1/I so they survive being read aloud or typed. */
     const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
     const CODE_LENGTH = 6;
 
     const COUNTDOWN_MS = 3000;
-    const MAX_PLAYERS = 2;
+    const MAX_PLAYERS = 5;
 
     const DRILLS = {
       click: { durationMs: 30000, label: 'click' },
@@ -519,6 +519,8 @@ window.__ModuleLoader__.load({
       hostId,
       phase: 'lobby',
       mode: 'click',
+      rounds: 8,
+      participantIds: [],
       seed: 0,
       startAt: 0,
       durationMs: DRILLS.click.durationMs,
@@ -547,6 +549,10 @@ window.__ModuleLoader__.load({
         this.results = {};
         this.clock = { offset: 0, rtt: 0 };
         this.pingSamples = [];
+        this.pendingPings = new Set();
+        this.progress = {};
+        this.opponentProgress = null;
+        this.joinError = null;
         this.seq = 0;
       }
 
@@ -593,6 +599,7 @@ window.__ModuleLoader__.load({
       // -------------------------------------------------------------- host actions
 
       setReady(ready) {
+        if (this.state.phase !== 'lobby') return;
         if (this.isHost) {
           const player = this.state.players.find((item) => item.id === this.playerId);
           if (player) player.ready = ready;
@@ -602,18 +609,32 @@ window.__ModuleLoader__.load({
         this.publish('cmd', { type: 'ready', from: this.playerId, ready });
       }
 
-      startMatch(mode = 'click') {
-        if (!this.isHost) return false;
-        if (this.state.players.length < MAX_PLAYERS) return false;
+      setReactionRounds(rounds) {
+        if (!this.isHost || this.state.phase !== 'lobby' || !Number.isInteger(rounds) || rounds < 5 || rounds > 20) return false;
+        this.state.rounds = rounds;
+        this.publishState();
+        return true;
+      }
+
+      startMatch(mode = 'click', { rounds = this.state.rounds ?? 8 } = {}) {
+        if (!this.isHost || !['lobby', 'finished'].includes(this.state.phase) || !DRILLS[mode]) return false;
+        const online = this.state.players.filter((player) => player.online);
+        if (online.length < 2 || online.length > MAX_PLAYERS || online.some((player) => !player.ready)) return false;
+        if (mode === 'reaction' && (!Number.isInteger(rounds) || rounds < 5 || rounds > 20)) return false;
         const seed = Math.floor(Math.random() * 0x7fffffff);
         const startAt = this.now() + COUNTDOWN_MS;
+        // Offline participants remain on the finished scoreboard until the next match.
+        this.state.players = online.map((player) => ({ ...player, withdrawn: false }));
+        this.state.participantIds = online.map((player) => player.id);
         this.state.phase = 'countdown';
         this.state.mode = mode;
+        if (mode === 'reaction') this.state.rounds = rounds;
         this.state.seed = seed;
         this.state.startAt = startAt;
-        this.state.durationMs = DRILLS[mode]?.durationMs ?? 0;
+        this.state.durationMs = DRILLS[mode].durationMs ?? 0;
         this.state.matchId = `${this.playerId}:${startAt}:${++this.seq}`;
         this.state.rematchRequested = null;
+        this.progress = {};
         this.opponentProgress = null;
         this.state.results = {};
         this.results = {};
@@ -626,7 +647,8 @@ window.__ModuleLoader__.load({
           seed,
           startAt,
           durationMs: this.state.durationMs,
-          rounds: DRILLS[mode]?.rounds ?? 0,
+          rounds: this.state.rounds,
+          participantIds: [...this.state.participantIds],
           v: PROTO,
         });
         return true;
@@ -642,11 +664,18 @@ window.__ModuleLoader__.load({
       }
 
       beginPlay() {
-        this.state.phase = 'playing';
+        if (this.state.phase === 'countdown') this.state.phase = 'playing';
+      }
+
+      activeParticipant(playerId) {
+        return ['countdown', 'playing'].includes(this.state.phase)
+          && this.state.participantIds.includes(playerId)
+          && this.state.players.some((player) => player.id === playerId && player.online && !player.withdrawn);
       }
 
       reportProgress({ score, hits = 0, misses = 0, acc = 0, round = 0 }) {
-        this.publish('ev', {
+        if (!this.activeParticipant(this.playerId) || this.results[this.playerId]) return;
+        const message = {
           type: 'progress',
           from: this.playerId,
           matchId: this.state.matchId,
@@ -656,11 +685,13 @@ window.__ModuleLoader__.load({
           acc,
           round,
           v: PROTO,
-        });
+        };
+        this.progress[this.playerId] = message;
+        this.publish('ev', message);
       }
 
       finish(result) {
-        if (!this.state.matchId || this.results[this.playerId]) return;
+        if (!this.activeParticipant(this.playerId) || this.results[this.playerId]) return;
         this.recordResult(this.playerId, result);
         this.publish('ev', { type: 'finish', from: this.playerId, matchId: this.state.matchId, result, v: PROTO });
       }
@@ -684,9 +715,11 @@ window.__ModuleLoader__.load({
         this.state.startAt = 0;
         this.state.matchId = null;
         this.state.rematchRequested = null;
-        this.state.players = this.state.players.map((player) => ({ ...player, ready: false }));
+        this.state.players = this.state.players.filter((player) => player.online).map((player) => ({ ...player, ready: false }));
+        this.state.participantIds = [];
         this.state.results = {};
         this.results = {};
+        this.progress = {};
         this.opponentProgress = null;
         this.publishState();
       }
@@ -702,12 +735,17 @@ window.__ModuleLoader__.load({
       // -------------------------------------------------------------- clock sync
 
       sendPing() {
-        this.publish('cmd', { type: 'ping', from: this.playerId, t0: this.now(), v: PROTO });
+        const t0 = this.now();
+        this.pendingPings.add(t0);
+        if (this.pendingPings.size > 20) this.pendingPings.delete(this.pendingPings.values().next().value);
+        this.publish('cmd', { type: 'ping', from: this.playerId, t0, v: PROTO });
       }
 
       handlePong({ t0, t1 }) {
+        if (!this.pendingPings.delete(t0) || !Number.isFinite(t1)) return this.clock;
         const t2 = this.now();
         this.pingSamples.push({ t0, t1, t2 });
+        if (this.pingSamples.length > 20) this.pingSamples.shift();
         this.clock = estimateClockOffset(this.pingSamples);
         return this.clock;
       }
@@ -733,7 +771,10 @@ window.__ModuleLoader__.load({
         const previousPhase = this.state.phase;
         const sameMatch = Boolean(next.matchId && next.matchId === this.state.matchId);
         const localResult = sameMatch ? this.results[this.playerId] : null;
-        if (!sameMatch) this.opponentProgress = null;
+        if (!sameMatch) {
+          this.opponentProgress = null;
+          this.progress = {};
+        }
         this.state = {
           ...this.state,
           ...next,
@@ -749,13 +790,20 @@ window.__ModuleLoader__.load({
       }
 
       handleEvent(message) {
+        if (message.type === 'join-rejected') {
+          if (this.isHost || message.to !== this.playerId) return 'not-addressed';
+          this.joinError = message.reason;
+          return message.reason;
+        }
         if (message.type === 'start') {
           if (this.isHost || message.from !== this.state.hostId) return 'ignored-start';
           if (this.state.matchId === message.matchId) return 'same-match';
           this.state.matchId = message.matchId;
           this.state.results = {};
           this.results = {};
+          this.progress = {};
           this.opponentProgress = null;
+          this.state.participantIds = message.participantIds ?? this.state.players.filter((player) => player.online).map((player) => player.id);
           this.state.phase = 'countdown';
           this.state.mode = message.mode;
           this.state.seed = message.seed;
@@ -766,10 +814,14 @@ window.__ModuleLoader__.load({
         }
         if (message.type === 'progress' || message.type === 'finish') {
           if (!this.state.matchId || message.matchId !== this.state.matchId) return 'old-match';
-          if (!this.state.players.some((player) => player.id === message.from)) return 'unknown-player';
+          if (!this.state.participantIds.includes(message.from)) return 'unknown-player';
+          if (!this.activeParticipant(message.from)) return 'inactive-player';
         }
         if (message.type === 'progress') {
-          if (!this.results[message.from]) this.opponentProgress = message;
+          if (!this.results[message.from]) {
+            this.progress[message.from] = message;
+            this.opponentProgress = message;
+          }
           return 'progress';
         }
         if (message.type === 'finish') {
@@ -777,13 +829,24 @@ window.__ModuleLoader__.load({
           return 'finish';
         }
         if (message.type === 'pong') {
-          if (!this.isHost) this.handlePong({ t0: message.t0, t1: message.t1 });
+          if (this.isHost || message.to !== this.playerId || message.from !== this.state.hostId) return 'not-addressed';
+          this.handlePong({ t0: message.t0, t1: message.t1 });
           return 'pong';
         }
         if (message.type === 'leave') {
-          this.state.players = this.state.players.map((player) =>
-            player.id === message.from ? { ...player, online: false } : player,
-          );
+          const player = this.state.players.find((item) => item.id === message.from);
+          if (!player) return 'unknown-player';
+          if (this.state.phase === 'lobby' && message.from !== this.state.hostId) {
+            this.state.players = this.state.players.filter((item) => item.id !== message.from);
+          } else {
+            player.online = false;
+            player.ready = false;
+            player.withdrawn = true;
+            if (this.isHost && this.state.participantIds.includes(message.from) && !this.results[message.from]) {
+              this.recordResult(message.from, { score: 0, dnf: true, withdrawn: true });
+            }
+          }
+          delete this.progress[message.from];
           if (this.isHost) this.publishState();
           return 'leave';
         }
@@ -796,10 +859,15 @@ window.__ModuleLoader__.load({
           return 'not-host';
         }
         if (message.type === 'join') {
-          if (message.app !== this.app) return 'app-mismatch';
+          const reject = (reason) => {
+            this.publish('ev', { type: 'join-rejected', from: this.playerId, to: message.from, reason, v: PROTO });
+            return reason;
+          };
+          if (message.app !== this.app) return reject('app-mismatch');
+          if (this.state.phase !== 'lobby') return reject('match-in-progress');
           const exists = this.state.players.some((player) => player.id === message.from);
           if (!exists) {
-            if (this.state.players.length >= MAX_PLAYERS) return 'room-full';
+            if (this.state.players.length >= MAX_PLAYERS) return reject('room-full');
             this.state.players.push({
               id: message.from,
               name: message.name || 'player',
@@ -812,18 +880,21 @@ window.__ModuleLoader__.load({
           return 'join';
         }
         if (message.type === 'ready') {
-          const player = this.state.players.find((item) => item.id === message.from);
-          if (player) player.ready = message.ready === true;
+          if (this.state.phase !== 'lobby') return 'not-lobby';
+          const player = this.state.players.find((item) => item.id === message.from && item.online);
+          if (!player) return 'unknown-player';
+          player.ready = message.ready === true;
           this.publishState();
           return 'ready';
         }
         if (message.type === 'ping') {
-          this.publish('ev', { type: 'pong', from: this.playerId, t0: message.t0, t1: this.now(), v: PROTO });
+          if (!this.state.players.some((player) => player.id === message.from && player.online)) return 'unknown-player';
+          this.publish('ev', { type: 'pong', from: this.playerId, to: message.from, t0: message.t0, t1: this.now(), v: PROTO });
           return 'ping';
         }
         if (message.type === 'rematch' || message.type === 'lobby') {
           if (this.state.phase !== 'finished' || message.matchId !== this.state.matchId) return 'old-match';
-          if (!this.state.players.some((player) => player.id === message.from)) return 'unknown-player';
+          if (!this.state.players.some((player) => player.id === message.from && player.online && !player.withdrawn)) return 'unknown-player';
           if (message.type === 'lobby') this.returnToLobby();
           else {
             this.state.rematchRequested = message.from;
@@ -835,10 +906,11 @@ window.__ModuleLoader__.load({
       }
 
       recordResult(playerId, result) {
+        if (!result || typeof result !== 'object') return;
         this.results[playerId] = result;
         this.state.results = { ...this.results };
-        const everyoneDone = this.state.players.every((player) => this.results[player.id]);
-        if (everyoneDone) this.state.phase = 'finished';
+        const everyoneDone = this.state.participantIds.length > 0 && this.state.participantIds.every((id) => this.results[id]);
+        if (this.isHost && everyoneDone) this.state.phase = 'finished';
         if (this.isHost) this.publishState();
       }
     }
@@ -926,6 +998,12 @@ window.__ModuleLoader__.load({
         let probed = false;
         let pinged = 0;
         let pingTimer = 0;
+        let initialState = null;
+        let resolveAdmission;
+        let rejectAdmission;
+        const admission = new Promise((resolve, reject) => { resolveAdmission = resolve; rejectAdmission = reject; });
+        // Host connections never wait on admission.
+        admission.catch(() => {});
 
         const publishOut = ({ channel, payload, retain }) => {
           if (!code || closed) return;
@@ -947,9 +1025,14 @@ window.__ModuleLoader__.load({
           } catch (_) {
             return;
           }
-          if (channel === 'state' && parsed && parsed.code === code) probed = true;
+          if (channel === 'state' && parsed && parsed.code === code) {
+            probed = true;
+            initialState = parsed;
+          }
           if (!room) return;
           room.handle(channel, parsed);
+          if (room.joinError) rejectAdmission(new Error(room.joinError));
+          if (channel === 'state' && room.state.players.some((player) => player.id === playerId && player.online)) resolveAdmission();
           onUpdate();
         });
 
@@ -991,10 +1074,32 @@ window.__ModuleLoader__.load({
           await wait(PROBE_MS);
         }
 
-        room = new Room({ role, playerId, name, emit: publishOut });
+        room = new Room({ role, playerId, name, emit: publishOut, ...(options.app ? { app: options.app } : {}) });
 
         if (role === 'host') room.createRoom(code);
-        else room.joinRoom(code);
+        else {
+          room.code = code;
+          if (initialState && initialState.app !== room.app) {
+            closed = true;
+            try { client.close(); } catch (_) { /* already down */ }
+            onStatus({ phase: 'error', broker: broker.label, reason: 'app-mismatch' });
+            throw new Error('app-mismatch');
+          }
+          if (initialState) room.handle('state', initialState);
+          room.joinRoom(code);
+          try {
+            await withTimeout(admission, timeoutMs);
+          } catch (error) {
+            closed = true;
+            try { client.close(); } catch (_) { /* already down */ }
+            if (['room-full', 'match-in-progress', 'app-mismatch'].includes(error.message)) {
+              onStatus({ phase: 'error', broker: broker.label, reason: error.message });
+              throw error;
+            }
+            lastError = error;
+            continue;
+          }
+        }
 
         if (role === 'guest') {
           // The offset estimate needs a few samples; ping fast at first, then relax.
@@ -1085,7 +1190,7 @@ window.__ModuleLoader__.load({
         checkUpdates: 'Check for updates', checkingUpdates: 'Checking…', updateAvailable: 'A newer version is available.',
         updateCurrent: 'You are up to date.', updateAhead: 'This local version is newer than GitHub.',
         updateFailed: 'Check failed. Verify your connection to GitHub and retry.',
-        updateSteps: 'Copy the address below. In the Plugins page, remove Aim Trainer, then use Install to install this address. Refresh the page afterwards. Both players should update and create a new room.',
+        updateSteps: 'Copy the address below. In the Plugins page, remove Aim Trainer, then use Install to install this address. Refresh the page afterwards. All players should update and create a new room.',
         updateCopy: 'Copy installation address', updateCopyFailed: 'Copy failed. Select and copy the address below.',
         updateSource: 'View checked commit', updatePrivacy: 'Checks GitHub only when clicked. Does not install automatically.',
         updateLocalHint: 'Local Git clone: run git pull in its directory instead, then refresh the page.',
@@ -1111,14 +1216,20 @@ window.__ModuleLoader__.load({
         waitingFriend: 'Waiting for a friend to join…', rivalJoined: 'Rival joined',
         hostTag: 'Host', youTag: 'You', readyChip: 'Ready', waitingChip: 'Not ready',
         ready: 'Ready up', unready: 'Stand down', startMatch: 'Start match',
-        needReady: 'Both players must be ready.', matchIn: 'Starts in',
+        needReady: 'At least 2 players must join, and all online players must be ready.', matchIn: 'Starts in',
+        roomSize: 'Players', roomHint: '2–5 players. The host starts when everyone is ready.',
+        reactionRounds: 'Reaction rounds', roundsHint: 'The host chooses 5–20 rounds before starting.',
+        rank: 'Rank', leaderboard: 'Standings', completed: 'Finished', withdrawn: 'Withdrew', playerOffline: 'Offline',
+        hostLeft: 'The host has left. Leave this room and create or join another.',
+        roomFull: 'This room already has 5 players.', matchInProgress: 'A match is in progress. Join when the room returns to the lobby.',
+        versionMismatch: 'Room versions differ. All players must update to the same version.',
         you: 'You', rival: 'Rival', youWin: 'You win', youLose: 'You lose', draw: 'Draw',
         rematch: 'Rematch', waitingHost: 'Waiting for the host…', results: 'Result',
         offline: 'Relay connection lost.', roomMissing: 'No live room with that code yet.',
         cancel: 'Back', syncHint: 'Clock sync in progress…',
-        backToRoom: 'Back to room', waitingResult: 'Score submitted. Waiting for your rival…',
+        backToRoom: 'Back to room', waitingResult: 'Score submitted. Waiting for the other players…',
         requestRematch: 'Request rematch', rematchRequested: 'Rematch requested',
-        rivalWantsRematch: 'Your rival requested a rematch.',
+        rivalWantsRematch: 'A player requested a rematch.',
         clickRule: 'More hits wins. Equal hits is a draw.',
         reactionRule: 'Lower average reaction time wins. Equal times is a draw.',
       },
@@ -1127,7 +1238,7 @@ window.__ModuleLoader__.load({
         checkUpdates: '检查更新', checkingUpdates: '正在检查…', updateAvailable: '发现新版本。',
         updateCurrent: '已是最新版本。', updateAhead: '当前本地版本比 GitHub 更新。',
         updateFailed: '检查失败，请确认能访问 GitHub 后重试。',
-        updateSteps: '复制下方地址，在插件页面移除「瞄准训练」，再通过「安装」填入此地址。安装后刷新页面。双方都更新后，请重新创建房间。',
+        updateSteps: '复制下方地址，在插件页面移除「瞄准训练」，再通过「安装」填入此地址。安装后刷新页面。所有玩家都更新后，请重新创建房间。',
         updateCopy: '复制安装地址', updateCopyFailed: '复制失败，请手动选中并复制下方地址。',
         updateSource: '查看本次检查的提交', updatePrivacy: '点击时才访问 GitHub，不会自动安装。',
         updateLocalHint: '如果通过本地 Git 克隆安装，在克隆目录执行 git pull 后刷新即可。',
@@ -1153,14 +1264,20 @@ window.__ModuleLoader__.load({
         waitingFriend: '等待好友加入…', rivalJoined: '对手已加入',
         hostTag: '房主', youTag: '你', readyChip: '已准备', waitingChip: '未准备',
         ready: '准备', unready: '取消准备', startMatch: '开始对战',
-        needReady: '双方都准备好才能开始。', matchIn: '倒计时',
+        needReady: '至少 2 人加入，且所有在线玩家准备好才能开始。', matchIn: '倒计时',
+        roomSize: '房间人数', roomHint: '2～5 人，所有人准备后由房主开局。',
+        reactionRounds: '反应赛轮数', roundsHint: '房主可在开局前选择 5～20 轮。',
+        rank: '名次', leaderboard: '排行榜', completed: '已完成', withdrawn: '已退出', playerOffline: '已离线',
+        hostLeft: '房主已离开，请退出后创建或加入其他房间。',
+        roomFull: '房间已满，最多 5 人。', matchInProgress: '对局正在进行，请等房间返回大厅后再加入。',
+        versionMismatch: '房间版本不一致，请所有玩家更新到相同版本。',
         you: '你', rival: '对手', youWin: '你赢了', youLose: '你输了', draw: '平局',
         rematch: '再来一局', waitingHost: '等待房主开始…', results: '结果',
         offline: '中继连接已断开。', roomMissing: '还没有这个房间码的对局。',
         cancel: '返回', syncHint: '正在同步时钟…',
-        backToRoom: '返回房间', waitingResult: '成绩已提交，等待对手完成…',
+        backToRoom: '返回房间', waitingResult: '成绩已提交，等待其他玩家完成…',
         requestRematch: '请求再来一局', rematchRequested: '已请求重开',
-        rivalWantsRematch: '对手请求再来一局。',
+        rivalWantsRematch: '有玩家请求再来一局。',
         clickRule: '命中数多者获胜，命中数相同则平局。',
         reactionRule: '平均反应时间短者获胜，时间相同则平局。',
       },
@@ -1225,7 +1342,11 @@ window.__ModuleLoader__.load({
       .at-players { display:flex; flex-direction:column; border:1px solid #1a222c; border-radius:6px; overflow:hidden; }
       .at-player { display:flex; align-items:center; gap:8px; padding:9px 11px; background:#0e141c; font-size:12px; }
       .at-player + .at-player { border-top:1px solid #1a222c; }
-      .at-player-name { flex:1; color:#e8eff5; font-weight:650; }
+      .at-player-name { flex:1; min-width:0; overflow-wrap:anywhere; color:#e8eff5; font-weight:650; }
+      .at-player-value { color:#eafffa; font-variant-numeric:tabular-nums; white-space:nowrap; }
+      .at-rank { width:24px; color:#00e5c0; font-weight:800; text-align:center; }
+      .at-primary:disabled, .at-mode:disabled { opacity:.45; cursor:default; }
+      .at-input:disabled { opacity:.7; cursor:default; }
       .at-chip { padding:2px 7px; border:1px solid #26364a; border-radius:3px; color:#8ea0b0; font-size:9px; letter-spacing:.12em; text-transform:uppercase; }
       .at-chip.at-on { border-color:#0f7f6c; background:#07231f; color:#7ff0da; }
       .at-duel-line { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px; border:1px solid #1a222c; border-radius:6px; background:#0c1218; color:#7f8f9e; font-size:11px; letter-spacing:.1em; text-transform:uppercase; }
@@ -1570,7 +1691,9 @@ window.__ModuleLoader__.load({
           durationMs: room.state.durationMs,
           offset: room.clock.offset,
           rtt: room.clock.rtt,
-          opponent: room.opponentProgress || null,
+          rounds: room.state.rounds,
+          participantIds: [...(room.state.participantIds || [])],
+          progress: Object.fromEntries(Object.entries(room.progress || {}).map(([id, value]) => [id, { ...value }])),
         });
       }, []);
 
@@ -1686,7 +1809,7 @@ window.__ModuleLoader__.load({
       }
 
       const target = targets[view.index % targets.length];
-      const rivalScore = vs.snap.opponent ? vs.snap.opponent.score : 0;
+      const shots = view.hits + view.misses;
 
       return h('div', { className: 'at-duel' },
         h('div', { className: 'at-arena', onPointerDown: miss },
@@ -1702,7 +1825,7 @@ window.__ModuleLoader__.load({
         ),
         h('div', { className: 'at-stats' },
           statCell(t('you'), view.hits),
-          statCell(t('rival'), rivalScore),
+          statCell(t('accuracy'), (shots ? Math.round(view.hits / shots * 100) : 0) + '%'),
           statCell(t('timeLeft'), view.left + t('sec')),
         ),
       );
@@ -1740,8 +1863,9 @@ window.__ModuleLoader__.load({
         const value = performance.now() - startAt.current;
         const next = times.concat(value);
         setTimes(next);
+        const average = Math.round(next.reduce((sum, item) => sum + item, 0) / next.length);
+        vs.act((room) => room.reportProgress({ score: average, hits: next.length, misses: 0, acc: 0 }));
         if (next.length >= rounds) {
-          const average = Math.round(next.reduce((sum, item) => sum + item, 0) / next.length);
           setDone(true);
           vs.act((room) => room.finish({ score: average, hits: next.length, misses: 0, acc: 0 }));
         } else {
@@ -1751,7 +1875,7 @@ window.__ModuleLoader__.load({
       }
 
       const last = times.length > 0 ? Math.round(times[times.length - 1]) : 0;
-      const rivalScore = vs.snap.opponent ? vs.snap.opponent.score : 0;
+      const average = times.length ? Math.round(times.reduce((sum, value) => sum + value, 0) / times.length) : 0;
 
       return h('div', { className: 'at-duel' },
         h('div', {
@@ -1772,39 +1896,89 @@ window.__ModuleLoader__.load({
         h('div', { className: 'at-stats' },
           statCell(t('round'), `${Math.min(round, rounds)}/${rounds}`),
           statCell(t('reaction'), last > 0 ? last + t('ms') : '—'),
-          statCell(t('rival'), rivalScore > 0 ? rivalScore + t('ms') : '—'),
+          statCell(t('reactionBest'), average > 0 ? average + t('ms') : '—'),
         ),
+      );
+    }
+
+    function matchPlayers(snap) {
+      const ids = snap.participantIds;
+      return ids && ids.length ? snap.players.filter((player) => ids.includes(player.id)) : snap.players;
+    }
+
+    function scoreText(result, mode, t) {
+      if (!result) return '—';
+      if (result.dnf || result.withdrawn) return t('withdrawn');
+      return result.score + (mode === 'reaction' ? ' ' + t('ms') : '');
+    }
+
+    function MatchProgress({ snap, t }) {
+      return h('div', { className: 'at-players', 'aria-label': t('leaderboard') },
+        matchPlayers(snap).map((player) => {
+          const result = snap.results[player.id];
+          const progress = (snap.progress || {})[player.id];
+          const value = result ? scoreText(result, snap.mode, t)
+            : snap.mode === 'reaction' ? `${progress ? progress.hits : 0}/${snap.rounds || 8}`
+              : progress ? progress.score : 0;
+          return h('div', { key: player.id, className: 'at-player' },
+            h('span', { className: 'at-player-name' }, `${player.name || player.id}${player.id === snap.me ? ' · ' + t('youTag') : ''}`),
+            result && !result.dnf ? h('span', { className: 'at-chip at-on' }, t('completed')) : null,
+            h('strong', { className: 'at-player-value' }, value),
+          );
+        }),
       );
     }
 
     function DuelResults({ vs, t }) {
       const snap = vs.snap;
-      const rival = snap.players.find((player) => player.id !== snap.me);
-      const mine = snap.results[snap.me];
-      const theirs = rival ? snap.results[rival.id] : null;
+      const participants = matchPlayers(snap);
       const lowerWins = snap.mode === 'reaction';
-      const pending = !mine || !theirs;
+      const pending = participants.some((player) => !snap.results[player.id]);
+      const entries = participants.map((player) => ({ player, result: snap.results[player.id] }));
+      const valid = (entry) => Boolean(entry.result && !entry.result.dnf && !entry.result.withdrawn);
+      entries.sort((a, b) => {
+        if (valid(a) !== valid(b)) return valid(a) ? -1 : 1;
+        if (!valid(a)) return 0;
+        return lowerWins ? a.result.score - b.result.score : b.result.score - a.result.score;
+      });
+      let lastScore = null;
+      let rank = 0;
+      const ranked = entries.map((entry, index) => {
+        if (!valid(entry)) return { ...entry, rank: null };
+        if (lastScore !== entry.result.score) rank = index + 1;
+        lastScore = entry.result.score;
+        return { ...entry, rank };
+      });
+      const mine = ranked.find((entry) => entry.player.id === snap.me);
+      const leaders = ranked.filter((entry) => entry.rank === 1);
       let verdict = t('results');
-      if (!pending) {
-        const better = lowerWins ? mine.score < theirs.score : mine.score > theirs.score;
-        const worse = lowerWins ? mine.score > theirs.score : mine.score < theirs.score;
-        verdict = better ? t('youWin') : worse ? t('youLose') : t('draw');
+      if (!pending && mine) {
+        verdict = mine.rank === 1 ? t(leaders.length > 1 ? 'draw' : 'youWin') : t('youLose');
       }
+      const online = snap.players.filter((player) => player.online !== false && !player.withdrawn);
+      const canRematch = online.length >= 2 && online.every((player) => player.ready);
 
       return h('div', { className: 'at-vs' },
         h('div', { className: 'at-banner' },
           h('span', { className: 'at-banner-big' }, verdict),
-          pending ? h('span', { className: 'at-note' }, t('waitingHost')) : null,
+          mine && mine.rank ? h('span', { className: 'at-note' }, `${t('rank')} · ${mine.rank} / ${participants.length}`) : null,
+          pending ? h('span', { className: 'at-note' }, t('waitingResult')) : null,
         ),
         h('p', { className: 'at-note' }, lowerWins ? t('reactionRule') : t('clickRule')),
-        h('div', { className: 'at-duel-line' }, h('span', null, t('you')), h('strong', null, mine ? mine.score + (lowerWins ? ' ' + t('ms') : '') : '—')),
-        h('div', { className: 'at-duel-line' }, h('span', null, t('rival')), h('strong', null, theirs ? theirs.score + (lowerWins ? ' ' + t('ms') : '') : '—')),
+        h('div', { className: 'at-players', 'aria-label': t('leaderboard') },
+          ranked.map((entry) => h('div', { key: entry.player.id, className: 'at-player' },
+            h('span', { className: 'at-rank' }, entry.rank || '—'),
+            h('span', { className: 'at-player-name' }, `${entry.player.name || entry.player.id}${entry.player.id === snap.me ? ' · ' + t('youTag') : ''}`),
+            h('strong', { className: 'at-player-value' }, scoreText(entry.result, snap.mode, t)),
+          )),
+        ),
         snap.role === 'host' && snap.rematchRequested ? h('p', { className: 'at-note' }, t('rivalWantsRematch')) : null,
+        snap.role === 'host' && !canRematch ? h('p', { className: 'at-note' }, t('needReady')) : null,
         h('div', { className: 'at-row' },
           h('button', {
             className: 'at-primary',
             type: 'button',
-            disabled: pending || (snap.role !== 'host' && snap.rematchRequested === snap.me),
+            disabled: pending || (snap.role === 'host' ? !canRematch : snap.rematchRequested === snap.me),
             onClick: () => vs.act((room) => room.rematch()),
           }, snap.role === 'host' ? t('rematch') : snap.rematchRequested === snap.me ? t('rematchRequested') : t('requestRematch')),
           h('button', { className: 'at-ghost', type: 'button', onClick: () => vs.act((room) => room.returnToLobby()) }, t('backToRoom')),
@@ -1820,7 +1994,7 @@ window.__ModuleLoader__.load({
       const snap = vs.snap;
 
       const me = snap ? snap.players.find((player) => player.id === snap.me) : null;
-      const rival = snap ? snap.players.find((player) => player.id !== snap.me) : null;
+      const host = snap ? snap.players.find((player) => player.id === snap.hostId) : null;
       const startLocal = snap && snap.startAt ? snap.startAt - snap.offset : 0;
       const finished = Boolean(snap && snap.phase === 'finished');
       const submitted = Boolean(snap && snap.results[snap.me]);
@@ -1874,30 +2048,33 @@ window.__ModuleLoader__.load({
             disabled: normalizeCode(codeInput).length !== 6,
             onClick: () => vs.connect('guest', normalizeCode(codeInput)),
           }, t('joinRoom')),
-          h('p', { className: 'at-note' }, vs.stage === 'error' ? (vs.error === 'no-broker' ? t('offline') : vs.error) : t('joinHint')),
+          h('p', { className: 'at-note' }, vs.stage === 'error' ? ({ 'no-broker': t('offline'), 'room-full': t('roomFull'), 'match-in-progress': t('matchInProgress'), 'app-mismatch': t('versionMismatch'), 'room-not-found': t('roomMissing') }[vs.error] || vs.error) : t('joinHint')),
+        );
+      }
+
+      if (host && host.online === false) {
+        return h('div', { className: 'at-vs' },
+          h('p', { className: 'at-note' }, t('hostLeft')),
+          h('button', { className: 'at-ghost', type: 'button', onClick: () => vs.leave() }, t('leaveRoom')),
         );
       }
 
       if (finished) return h(DuelResults, { vs, t });
 
       if (submitted) {
-        const result = snap.results[snap.me];
         return h('div', { className: 'at-vs' },
           h('p', { className: 'at-note' }, vs.status.phase === 'offline' ? t('offline') : t('waitingResult')),
-          h('div', { className: 'at-duel-line' }, h('span', null, t('you')), h('strong', null, result.score + (snap.mode === 'reaction' ? ' ' + t('ms') : ''))),
+          h(MatchProgress, { snap, t }),
           h('button', { className: 'at-ghost', type: 'button', onClick: () => vs.leave() }, t('leaveRoom')),
         );
       }
 
       if (playing) {
         return h('div', { className: 'at-vs' },
-          h('div', { className: 'at-duel-line' },
-            h('span', null, `${t('rival')} · ${rival ? rival.name : '—'}`),
-            h('strong', null, snap.opponent ? snap.opponent.score : 0),
-          ),
           snap.mode === 'reaction'
-            ? h(DuelReaction, { key: snap.matchId, vs, t, seed: snap.seed, rounds: 8 })
+            ? h(DuelReaction, { key: snap.matchId, vs, t, seed: snap.seed, rounds: snap.rounds || 8 })
             : h(DuelClick, { key: snap.matchId, vs, t, seed: snap.seed, durationMs: snap.durationMs || 30000, startLocal }),
+          h(MatchProgress, { snap, t }),
           h('button', { className: 'at-ghost', type: 'button', onClick: () => vs.leave() }, t('leaveRoom')),
         );
       }
@@ -1909,13 +2086,15 @@ window.__ModuleLoader__.load({
             h('span', { className: 'at-count-num' }, remain),
             h('span', { className: 'at-label' }, t('matchIn')),
           ),
-          h('div', { className: 'at-duel-line' }, h('span', null, t('rival')), h('strong', null, rival ? rival.name : '—')),
+          h('p', { className: 'at-note' }, `${t(snap.mode)}${snap.mode === 'reaction' ? ' · ' + snap.rounds + ' ' + t('round') : ''}`),
+          h(MatchProgress, { snap, t }),
           h('button', { className: 'at-ghost', type: 'button', onClick: () => vs.leave() }, t('leaveRoom')),
         );
       }
 
       const ready = Boolean(me && me.ready);
-      const bothReady = snap.players.length >= 2 && snap.players.every((player) => player.ready);
+      const online = snap.players.filter((player) => player.online !== false && !player.withdrawn);
+      const allReady = online.length >= 2 && online.every((player) => player.ready);
 
       return h('div', { className: 'at-vs' },
         h('div', { className: 'at-codebox' },
@@ -1925,14 +2104,15 @@ window.__ModuleLoader__.load({
           ),
           h('button', { className: 'at-ghost', type: 'button', onClick: copyCode }, copied ? t('copied') : t('copyCode')),
         ),
+        h('p', { className: 'at-note' }, `${t('roomSize')} · ${online.length} / 5 — ${t('roomHint')}`),
         h('div', { className: 'at-players' },
           snap.players.map((player) => h('div', { key: player.id, className: 'at-player' },
             h('span', { className: 'at-player-name' }, player.id === snap.me ? `${player.name} · ${t('youTag')}` : player.name),
             player.id === snap.hostId ? h('span', { className: 'at-chip' }, t('hostTag')) : null,
-            h('span', { className: 'at-chip' + (player.ready ? ' at-on' : '') }, player.ready ? t('readyChip') : t('waitingChip')),
+            h('span', { className: 'at-chip' + (player.ready ? ' at-on' : '') }, player.online === false ? t('playerOffline') : player.ready ? t('readyChip') : t('waitingChip')),
           )),
         ),
-        snap.players.length < 2 ? h('p', { className: 'at-note' }, t('waitingFriend')) : null,
+        !allReady ? h('p', { className: 'at-note' }, online.length < 2 ? t('waitingFriend') : t('needReady')) : null,
         h('div', { className: 'at-modes at-two' },
           ['click', 'reaction'].map((key) => h('button', {
             key,
@@ -1943,13 +2123,21 @@ window.__ModuleLoader__.load({
             onClick: () => vs.act((room) => { room.state.mode = key; room.publishState(); }),
           }, t(key))),
         ),
+        snap.mode === 'reaction' ? h('label', { className: 'at-field' },
+          h('span', { className: 'at-label' }, t('reactionRounds')),
+          h('select', {
+            className: 'at-input', value: snap.rounds || 8, disabled: snap.role !== 'host',
+            onChange: (event) => vs.act((room) => room.setReactionRounds(Number(event.target.value))),
+          }, Array.from({ length: 16 }, (_, index) => index + 5).map((rounds) => h('option', { key: rounds, value: rounds }, rounds))),
+          h('span', { className: 'at-note' }, t('roundsHint')),
+        ) : null,
         h('div', { className: 'at-row' },
           h('button', { className: 'at-primary', type: 'button', onClick: () => vs.act((room) => room.setReady(!ready)) }, ready ? t('unready') : t('ready')),
           h('button', {
             className: 'at-primary',
             type: 'button',
-            disabled: snap.role !== 'host' || !bothReady,
-            onClick: () => vs.act((room) => room.startMatch(snap.mode)),
+            disabled: snap.role !== 'host' || !allReady,
+            onClick: () => vs.act((room) => room.startMatch(snap.mode, { rounds: snap.rounds || 8 })),
           }, t('startMatch')),
         ),
         h('div', { className: 'at-duel-line' },
@@ -2052,10 +2240,10 @@ window.__ModuleLoader__.load({
         return h('div', { className: 'at-root' },
           h('style', null, CSS),
           h('button', { type: 'button', className: 'at-launch', title: t(open ? 'close' : 'open'), 'aria-label': t(open ? 'close' : 'open'), 'aria-expanded': open, onClick: () => setOpen(!open) }, '🎯'),
-          open && h('section', {
+          (open || vs.stage === 'room') && h('section', {
             className: 'at-win',
             ref: winRef,
-            style: { left: pos.left + 'px', top: pos.top + 'px' },
+            style: { left: pos.left + 'px', top: pos.top + 'px', display: open ? 'flex' : 'none' },
             'aria-label': t('title'),
           },
             h('div', {
@@ -2086,11 +2274,13 @@ window.__ModuleLoader__.load({
               mode === 'click' && h(ClickGame, { key: 'click', t, onFinish: record }),
               mode === 'reaction' && h(ReactionGame, { key: 'reaction', t, onFinish: record }),
               mode === 'track' && h(TrackGame, { key: 'track', t, onFinish: record }),
-            ) : tab === 'versus' ? h(VersusPanel, { vs, t }) : h('div', { className: 'at-records' },
+            ) : null,
+            h('div', { style: { display: tab === 'versus' ? 'block' : 'none' } }, h(VersusPanel, { vs, t })),
+            tab === 'records' ? h('div', { className: 'at-records' },
               row(t('clickBest'), records.click, ''),
               row(t('reactionBest'), records.reaction, t('ms')),
               row(t('trackBest'), records.track, '%'),
-            ),
+            ) : null,
           ),
         );
       };

@@ -119,6 +119,9 @@ test('host and guest reach the same phase after a scripted match', () => {
   assert.equal(host.state.players.length, 2);
   assert.equal(guest.state.players.length, 2);
 
+  host.setReady(true);
+  guest.setReady(true);
+  deliver();
   assert.equal(host.startMatch('click'), true);
   deliver();
   assert.equal(guest.state.phase, 'countdown');
@@ -150,6 +153,9 @@ function pairedRooms() {
   };
   host.createRoom('ABC234');
   guest.joinRoom('ABC234');
+  deliver();
+  host.setReady(true);
+  guest.setReady(true);
   deliver();
   host.startMatch('click');
   deliver();
@@ -229,6 +235,135 @@ test('duplicate finish submissions cannot overwrite a completed score', () => {
   deliver();
   assert.deepEqual(host.state.results, { p1: { score: 35 }, p2: { score: 40 } });
   assert.deepEqual(guest.state.results, host.state.results);
+});
+
+function multiplayer(count = 5) {
+  const queue = [];
+  const rooms = Array.from({ length: count }, (_, index) => new Room({
+    role: index ? 'guest' : 'host', playerId: `p${index}`, name: `player${index}`,
+    now: () => 100000 + index * 100, emit: (out) => queue.push(JSON.parse(JSON.stringify(out))),
+  }));
+  const deliver = () => {
+    let n = 0;
+    while (queue.length) {
+      assert.ok(n++ < 500, 'bounded broker queue');
+      const { channel, payload } = queue.shift();
+      for (const room of rooms) room.handle(channel, payload);
+    }
+  };
+  const host = rooms[0];
+  host.createRoom('ABC234');
+  for (const guest of rooms.slice(1)) guest.joinRoom('ABC234');
+  deliver();
+  return { rooms, host, deliver, queue };
+}
+
+test('five players require everyone ready and share authoritative reaction rounds', () => {
+  const { rooms, host, deliver } = multiplayer();
+  assert.equal(host.state.players.length, 5);
+  assert.equal(host.state.rounds, 8);
+  assert.equal(host.startMatch(), false);
+  for (const room of rooms.slice(0, 4)) room.setReady(true);
+  deliver();
+  assert.equal(host.startMatch(), false);
+  rooms[4].setReady(true);
+  deliver();
+  for (const invalid of [4, 21, 5.5, '8', NaN]) {
+    assert.equal(host.setReactionRounds(invalid), false);
+    assert.equal(host.startMatch('reaction', { rounds: invalid }), false);
+  }
+  assert.equal(rooms[1].setReactionRounds(5), false);
+  assert.equal(host.setReactionRounds(20), true);
+  deliver();
+  assert.ok(rooms.every((room) => room.state.rounds === 20));
+  assert.equal(host.startMatch('reaction', { rounds: 5 }), true);
+  deliver();
+  assert.ok(rooms.every((room) => room.state.rounds === 5 && room.state.participantIds.length === 5));
+  assert.equal(host.setReactionRounds(20), false);
+  assert.equal(host.startMatch(), false);
+  for (const [index, room] of rooms.entries()) room.reportProgress({ score: index, round: 2 });
+  deliver();
+  assert.ok(rooms.every((room) => Object.keys(room.progress).length === 5));
+  for (const [index, room] of rooms.entries()) room.finish({ score: index });
+  deliver();
+  assert.ok(rooms.every((room) => room.state.phase === 'finished'));
+  for (const room of rooms) assert.deepEqual(room.state.results, host.state.results);
+  rooms[2].rematch();
+  deliver();
+  assert.equal(host.state.rematchRequested, 'p2');
+  host.rematch();
+  deliver();
+  assert.ok(rooms.every((room) => room.state.rounds === 5 && Object.keys(room.progress).length === 0));
+});
+
+test('join rejection is directed and lobby leave frees a slot', () => {
+  const { rooms, host, deliver } = multiplayer(6);
+  assert.equal(host.state.players.length, 5);
+  assert.equal(rooms[5].joinError, 'room-full');
+  assert.equal(rooms[1].joinError, null);
+  rooms[1].leave();
+  deliver();
+  assert.equal(host.state.players.length, 4);
+  rooms[5].joinError = null;
+  rooms[5].joinRoom('ABC234');
+  deliver();
+  assert.equal(host.state.players.length, 5);
+  assert.ok(host.state.players.some((player) => player.id === 'p5'));
+  const badJoin = { type: 'join', from: 'wrong-version', app: '0.0.0' };
+  assert.equal(host.handle('cmd', badJoin), 'app-mismatch');
+});
+
+test('midmatch joins rejected and withdrawal cannot block completion or submit late scores', () => {
+  const { rooms, host, deliver } = multiplayer(3);
+  for (const room of rooms) room.setReady(true);
+  deliver();
+  host.startMatch('reaction');
+  deliver();
+  assert.equal(host.handle('cmd', { type: 'join', from: 'late', app: host.app }), 'match-in-progress');
+  const matchId = host.state.matchId;
+  rooms[2].leave();
+  deliver();
+  assert.equal(host.state.results.p2.dnf, true);
+  assert.equal(host.state.players.find((player) => player.id === 'p2').online, false);
+  assert.equal(host.handle('ev', { type: 'finish', from: 'p2', matchId, result: { score: 999 } }), 'inactive-player');
+  assert.equal(host.handle('ev', { type: 'progress', from: 'intruder', matchId, score: 999 }), 'unknown-player');
+  rooms[0].finish({ score: 1 });
+  rooms[1].finish({ score: 2 });
+  deliver();
+  assert.equal(host.state.phase, 'finished');
+  assert.equal(host.handle('cmd', { type: 'rematch', from: 'p2', matchId }), 'unknown-player');
+  rooms[1].returnToLobby();
+  deliver();
+  assert.equal(host.state.players.length, 2);
+  assert.ok(host.state.players.every((player) => !player.ready));
+  host.leave();
+  deliver();
+  assert.equal(rooms[1].state.players.find((player) => player.id === 'p0').online, false);
+});
+
+test('multiplayer pongs only consume the requesting guest pending timestamp', () => {
+  const { rooms, host, deliver, queue } = multiplayer(3);
+  rooms[1].sendPing();
+  rooms[2].sendPing();
+  deliver();
+  assert.equal(rooms[1].pingSamples.length, 1);
+  assert.equal(rooms[2].pingSamples.length, 1);
+  assert.equal(rooms[1].pingSamples[0].t0, 100100);
+  assert.equal(rooms[2].pingSamples[0].t0, 100200);
+  host.handle('cmd', { type: 'ping', from: 'p1', t0: 123 });
+  deliver();
+  assert.equal(rooms[1].pingSamples.length, 1, 'unsolicited timestamp ignored');
+  assert.equal(queue.length, 0);
+});
+
+test('one online player cannot start even with a departed roster entry', () => {
+  const { rooms, host, deliver } = multiplayer(2);
+  host.setReady(true);
+  rooms[1].setReady(true);
+  deliver();
+  rooms[1].leave();
+  deliver();
+  assert.equal(host.startMatch(), false);
 });
 
 const failed = results.filter((result) => !result.ok);

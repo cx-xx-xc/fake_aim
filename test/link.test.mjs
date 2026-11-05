@@ -1,61 +1,74 @@
 import assert from 'node:assert/strict';
-import { openRoom, newPlayerId } from '../net/link.js';
+import { openRoom, newPlayerId, BROKERS } from '../net/link.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function until(check, label, timeoutMs = 12000) {
+async function until(check, label, timeoutMs = 15000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    if (check()) return true;
+    if (check()) return;
     await sleep(60);
   }
   throw new Error(`timeout waiting for ${label}`);
 }
 
-const host = await openRoom({ role: 'host', name: 'host', playerId: newPlayerId() });
-console.log(`[link] host room ${host.code} via ${host.broker}`);
-
-const guest = await openRoom({ role: 'guest', code: host.code, name: 'guest', playerId: newPlayerId() });
-console.log(`[link] guest joined ${guest.code} via ${guest.broker}`);
-
-await until(() => host.room.state.players.length === 2, 'host to see the guest');
-assert.equal(host.room.state.players[1].name, 'guest');
-
-guest.room.setReady(true);
-await until(() => host.room.state.players.some((player) => player.id === guest.room.playerId && player.ready), 'guest ready to reach the host');
-
-await until(() => guest.room.pingSamples.length >= 2, 'clock samples');
-assert.ok(Number.isFinite(guest.room.clock.offset));
-
-assert.equal(host.room.startMatch('click'), true);
-await until(() => guest.room.state.phase === 'countdown', 'guest to see the start', 6000);
-assert.equal(guest.room.state.mode, 'click');
-
-const hostWait = host.room.msUntilStart();
-const guestWait = guest.room.msUntilStart();
-assert.ok(Math.abs(hostWait - guestWait) < 250, `countdown drift ${hostWait} vs ${guestWait}`);
-
-host.room.finish({ score: 12, hits: 12, misses: 3, acc: 80 });
-guest.room.finish({ score: 10, hits: 10, misses: 5, acc: 66 });
-await until(() => Object.keys(guest.room.state.results).length === 2, 'both results');
-await until(() => host.room.state.phase === 'finished' && guest.room.state.phase === 'finished', 'finished phase');
-
-assert.deepEqual(guest.room.state.results, host.room.state.results);
-guest.room.rematch();
-await until(() => host.room.state.rematchRequested === guest.room.playerId, 'rematch request');
-assert.equal(host.room.state.phase, 'finished');
-const previousMatch = host.room.state.matchId;
-host.room.startMatch('reaction');
-await until(() => guest.room.state.matchId !== previousMatch && guest.room.state.mode === 'reaction', 'reaction rematch');
-assert.deepEqual(guest.room.state.results, {});
-guest.room.finish({ score: 280, hits: 8 });
-host.room.finish({ score: 240, hits: 8 });
-await until(() => host.room.state.phase === 'finished' && guest.room.state.phase === 'finished', 'reaction final results');
-assert.deepEqual(guest.room.state.results, host.room.state.results);
-guest.room.returnToLobby();
-await until(() => host.room.state.phase === 'lobby' && guest.room.state.phase === 'lobby', 'return to lobby');
-assert.equal(guest.room.state.startAt, 0);
-guest.close();
-await until(() => host.room.state.players.some((player) => player.id === guest.room.playerId && !player.online), 'guest leave notification');
-host.close();
-console.log('[link] PASS  click/reaction finals, rematch request, lobby return and leave notification');
+const links = [];
+try {
+  const host = await openRoom({ role: 'host', name: 'host', playerId: newPlayerId() });
+  links.push(host);
+  console.log(`[link] host room ${host.code} via ${host.broker}`);
+  // Every guest must use the same relay selected by the host.
+  const brokers = BROKERS.filter((broker) => broker.label === host.broker);
+  const guestOptions = (name) => ({ role: 'guest', code: host.code, name, playerId: newPlayerId(), brokers });
+  for (let index = 1; index < 5; index += 1) {
+    const guest = await openRoom(guestOptions(`guest${index}`));
+    links.push(guest);
+    assert.ok(guest.room.state.players.some((player) => player.id === guest.room.playerId), 'initial admission snapshot');
+  }
+  await until(() => links.every((link) => link.room.state.players.length === 5), 'all five-player snapshots');
+  await assert.rejects(openRoom(guestOptions('sixth')), /^Error: room-full$/);
+  await assert.rejects(openRoom({ ...guestOptions('incompatible'), app: '0.0.0' }), /^Error: app-mismatch$/);
+  assert.equal(host.room.startMatch(), false, 'unready room cannot start');
+  for (const link of links) link.room.setReady(true);
+  await until(() => host.room.state.players.every((player) => player.ready), 'all readiness flags');
+  assert.equal(host.room.setReactionRounds(5), true);
+  await until(() => links.every((link) => link.room.state.rounds === 5), 'five rounds setting');
+  await until(() => links.slice(1).every((link) => link.room.pingSamples.length >= 2), 'independent guest clock samples');
+  for (const link of links.slice(1)) assert.ok(Number.isFinite(link.room.clock.offset));
+  assert.equal(host.room.startMatch('reaction'), true);
+  await until(() => links.every((link) => link.room.state.phase === 'countdown'), 'five-player countdown');
+  for (const link of links) {
+    assert.equal(link.room.state.rounds, 5);
+    assert.equal(link.room.state.participantIds.length, 5);
+    assert.ok(Math.abs(host.room.msUntilStart() - link.room.msUntilStart()) < 350, 'countdown clocks agree');
+  }
+  await assert.rejects(openRoom(guestOptions('late')), /^Error: match-in-progress$/);
+  for (const [index, link] of links.entries()) link.room.reportProgress({ score: index, round: 2 });
+  await until(() => links.every((link) => Object.keys(link.room.progress).length === 5), 'five independent progress entries');
+  for (const [index, link] of links.entries()) link.room.finish({ score: 250 + index, hits: 5 });
+  await until(() => links.every((link) => link.room.state.phase === 'finished' && Object.keys(link.room.state.results).length === 5), 'five final results');
+  for (const link of links) assert.deepEqual(link.room.state.results, host.room.state.results);
+  links[1].room.rematch();
+  await until(() => host.room.state.rematchRequested === links[1].room.playerId, 'guest rematch request');
+  const previousMatch = host.room.state.matchId;
+  assert.equal(host.room.startMatch('reaction', { rounds: 20 }), true);
+  await until(() => links.every((link) => link.room.state.matchId !== previousMatch && link.room.state.rounds === 20), 'twenty-round rematch');
+  for (const link of links) assert.deepEqual(link.room.state.results, {});
+  const withdrawn = links[4];
+  withdrawn.close();
+  await until(() => host.room.state.results[withdrawn.room.playerId]?.dnf, 'withdrawal recorded as DNF');
+  for (const [index, link] of links.slice(0, 4).entries()) link.room.finish({ score: 240 + index, hits: 20 });
+  await until(() => links.slice(0, 4).every((link) => link.room.state.phase === 'finished' && Object.keys(link.room.state.results).length === 5), 'remaining players finish after withdrawal');
+  links[1].room.returnToLobby();
+  await until(() => links.slice(0, 4).every((link) => link.room.state.phase === 'lobby' && link.room.state.players.length === 4), 'lobby drops departed participant');
+  assert.ok(host.room.state.players.every((player) => !player.ready));
+  links[3].close();
+  await until(() => host.room.state.players.length === 3, 'lobby leave frees slot');
+  const replacement = await openRoom(guestOptions('replacement'));
+  links.push(replacement);
+  await until(() => host.room.state.players.length === 4, 'replacement joins freed slot');
+  host.close();
+  await until(() => !replacement.room.state.players.find((player) => player.id === host.room.playerId)?.online, 'host leave reaches clients');
+  console.log('[link] PASS five clients, sixth/version/midmatch rejection, readiness, clocks, rounds 5/20, progress, results, rematch, DNF, lobby and leave');
+} finally {
+  for (const link of links) link.close();
+}

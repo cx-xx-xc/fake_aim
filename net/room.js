@@ -7,14 +7,14 @@
  */
 
 export const PROTO = 1;
-export const APP_VERSION = '1.2.2';
+export const APP_VERSION = '1.3.0';
 
 /** Room codes avoid 0/O/1/I so they survive being read aloud or typed. */
 export const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 export const CODE_LENGTH = 6;
 
 export const COUNTDOWN_MS = 3000;
-export const MAX_PLAYERS = 2;
+export const MAX_PLAYERS = 5;
 
 export const DRILLS = {
   click: { durationMs: 30000, label: 'click' },
@@ -108,6 +108,8 @@ const emptyState = (code, hostId) => ({
   hostId,
   phase: 'lobby',
   mode: 'click',
+  rounds: 8,
+  participantIds: [],
   seed: 0,
   startAt: 0,
   durationMs: DRILLS.click.durationMs,
@@ -136,6 +138,10 @@ export class Room {
     this.results = {};
     this.clock = { offset: 0, rtt: 0 };
     this.pingSamples = [];
+    this.pendingPings = new Set();
+    this.progress = {};
+    this.opponentProgress = null;
+    this.joinError = null;
     this.seq = 0;
   }
 
@@ -182,6 +188,7 @@ export class Room {
   // -------------------------------------------------------------- host actions
 
   setReady(ready) {
+    if (this.state.phase !== 'lobby') return;
     if (this.isHost) {
       const player = this.state.players.find((item) => item.id === this.playerId);
       if (player) player.ready = ready;
@@ -191,18 +198,32 @@ export class Room {
     this.publish('cmd', { type: 'ready', from: this.playerId, ready });
   }
 
-  startMatch(mode = 'click') {
-    if (!this.isHost) return false;
-    if (this.state.players.length < MAX_PLAYERS) return false;
+  setReactionRounds(rounds) {
+    if (!this.isHost || this.state.phase !== 'lobby' || !Number.isInteger(rounds) || rounds < 5 || rounds > 20) return false;
+    this.state.rounds = rounds;
+    this.publishState();
+    return true;
+  }
+
+  startMatch(mode = 'click', { rounds = this.state.rounds ?? 8 } = {}) {
+    if (!this.isHost || !['lobby', 'finished'].includes(this.state.phase) || !DRILLS[mode]) return false;
+    const online = this.state.players.filter((player) => player.online);
+    if (online.length < 2 || online.length > MAX_PLAYERS || online.some((player) => !player.ready)) return false;
+    if (mode === 'reaction' && (!Number.isInteger(rounds) || rounds < 5 || rounds > 20)) return false;
     const seed = Math.floor(Math.random() * 0x7fffffff);
     const startAt = this.now() + COUNTDOWN_MS;
+    // Offline participants remain on the finished scoreboard until the next match.
+    this.state.players = online.map((player) => ({ ...player, withdrawn: false }));
+    this.state.participantIds = online.map((player) => player.id);
     this.state.phase = 'countdown';
     this.state.mode = mode;
+    if (mode === 'reaction') this.state.rounds = rounds;
     this.state.seed = seed;
     this.state.startAt = startAt;
-    this.state.durationMs = DRILLS[mode]?.durationMs ?? 0;
+    this.state.durationMs = DRILLS[mode].durationMs ?? 0;
     this.state.matchId = `${this.playerId}:${startAt}:${++this.seq}`;
     this.state.rematchRequested = null;
+    this.progress = {};
     this.opponentProgress = null;
     this.state.results = {};
     this.results = {};
@@ -215,7 +236,8 @@ export class Room {
       seed,
       startAt,
       durationMs: this.state.durationMs,
-      rounds: DRILLS[mode]?.rounds ?? 0,
+      rounds: this.state.rounds,
+      participantIds: [...this.state.participantIds],
       v: PROTO,
     });
     return true;
@@ -231,11 +253,18 @@ export class Room {
   }
 
   beginPlay() {
-    this.state.phase = 'playing';
+    if (this.state.phase === 'countdown') this.state.phase = 'playing';
+  }
+
+  activeParticipant(playerId) {
+    return ['countdown', 'playing'].includes(this.state.phase)
+      && this.state.participantIds.includes(playerId)
+      && this.state.players.some((player) => player.id === playerId && player.online && !player.withdrawn);
   }
 
   reportProgress({ score, hits = 0, misses = 0, acc = 0, round = 0 }) {
-    this.publish('ev', {
+    if (!this.activeParticipant(this.playerId) || this.results[this.playerId]) return;
+    const message = {
       type: 'progress',
       from: this.playerId,
       matchId: this.state.matchId,
@@ -245,11 +274,13 @@ export class Room {
       acc,
       round,
       v: PROTO,
-    });
+    };
+    this.progress[this.playerId] = message;
+    this.publish('ev', message);
   }
 
   finish(result) {
-    if (!this.state.matchId || this.results[this.playerId]) return;
+    if (!this.activeParticipant(this.playerId) || this.results[this.playerId]) return;
     this.recordResult(this.playerId, result);
     this.publish('ev', { type: 'finish', from: this.playerId, matchId: this.state.matchId, result, v: PROTO });
   }
@@ -273,9 +304,11 @@ export class Room {
     this.state.startAt = 0;
     this.state.matchId = null;
     this.state.rematchRequested = null;
-    this.state.players = this.state.players.map((player) => ({ ...player, ready: false }));
+    this.state.players = this.state.players.filter((player) => player.online).map((player) => ({ ...player, ready: false }));
+    this.state.participantIds = [];
     this.state.results = {};
     this.results = {};
+    this.progress = {};
     this.opponentProgress = null;
     this.publishState();
   }
@@ -291,12 +324,17 @@ export class Room {
   // -------------------------------------------------------------- clock sync
 
   sendPing() {
-    this.publish('cmd', { type: 'ping', from: this.playerId, t0: this.now(), v: PROTO });
+    const t0 = this.now();
+    this.pendingPings.add(t0);
+    if (this.pendingPings.size > 20) this.pendingPings.delete(this.pendingPings.values().next().value);
+    this.publish('cmd', { type: 'ping', from: this.playerId, t0, v: PROTO });
   }
 
   handlePong({ t0, t1 }) {
+    if (!this.pendingPings.delete(t0) || !Number.isFinite(t1)) return this.clock;
     const t2 = this.now();
     this.pingSamples.push({ t0, t1, t2 });
+    if (this.pingSamples.length > 20) this.pingSamples.shift();
     this.clock = estimateClockOffset(this.pingSamples);
     return this.clock;
   }
@@ -322,7 +360,10 @@ export class Room {
     const previousPhase = this.state.phase;
     const sameMatch = Boolean(next.matchId && next.matchId === this.state.matchId);
     const localResult = sameMatch ? this.results[this.playerId] : null;
-    if (!sameMatch) this.opponentProgress = null;
+    if (!sameMatch) {
+      this.opponentProgress = null;
+      this.progress = {};
+    }
     this.state = {
       ...this.state,
       ...next,
@@ -338,13 +379,20 @@ export class Room {
   }
 
   handleEvent(message) {
+    if (message.type === 'join-rejected') {
+      if (this.isHost || message.to !== this.playerId) return 'not-addressed';
+      this.joinError = message.reason;
+      return message.reason;
+    }
     if (message.type === 'start') {
       if (this.isHost || message.from !== this.state.hostId) return 'ignored-start';
       if (this.state.matchId === message.matchId) return 'same-match';
       this.state.matchId = message.matchId;
       this.state.results = {};
       this.results = {};
+      this.progress = {};
       this.opponentProgress = null;
+      this.state.participantIds = message.participantIds ?? this.state.players.filter((player) => player.online).map((player) => player.id);
       this.state.phase = 'countdown';
       this.state.mode = message.mode;
       this.state.seed = message.seed;
@@ -355,10 +403,14 @@ export class Room {
     }
     if (message.type === 'progress' || message.type === 'finish') {
       if (!this.state.matchId || message.matchId !== this.state.matchId) return 'old-match';
-      if (!this.state.players.some((player) => player.id === message.from)) return 'unknown-player';
+      if (!this.state.participantIds.includes(message.from)) return 'unknown-player';
+      if (!this.activeParticipant(message.from)) return 'inactive-player';
     }
     if (message.type === 'progress') {
-      if (!this.results[message.from]) this.opponentProgress = message;
+      if (!this.results[message.from]) {
+        this.progress[message.from] = message;
+        this.opponentProgress = message;
+      }
       return 'progress';
     }
     if (message.type === 'finish') {
@@ -366,13 +418,24 @@ export class Room {
       return 'finish';
     }
     if (message.type === 'pong') {
-      if (!this.isHost) this.handlePong({ t0: message.t0, t1: message.t1 });
+      if (this.isHost || message.to !== this.playerId || message.from !== this.state.hostId) return 'not-addressed';
+      this.handlePong({ t0: message.t0, t1: message.t1 });
       return 'pong';
     }
     if (message.type === 'leave') {
-      this.state.players = this.state.players.map((player) =>
-        player.id === message.from ? { ...player, online: false } : player,
-      );
+      const player = this.state.players.find((item) => item.id === message.from);
+      if (!player) return 'unknown-player';
+      if (this.state.phase === 'lobby' && message.from !== this.state.hostId) {
+        this.state.players = this.state.players.filter((item) => item.id !== message.from);
+      } else {
+        player.online = false;
+        player.ready = false;
+        player.withdrawn = true;
+        if (this.isHost && this.state.participantIds.includes(message.from) && !this.results[message.from]) {
+          this.recordResult(message.from, { score: 0, dnf: true, withdrawn: true });
+        }
+      }
+      delete this.progress[message.from];
       if (this.isHost) this.publishState();
       return 'leave';
     }
@@ -385,10 +448,15 @@ export class Room {
       return 'not-host';
     }
     if (message.type === 'join') {
-      if (message.app !== this.app) return 'app-mismatch';
+      const reject = (reason) => {
+        this.publish('ev', { type: 'join-rejected', from: this.playerId, to: message.from, reason, v: PROTO });
+        return reason;
+      };
+      if (message.app !== this.app) return reject('app-mismatch');
+      if (this.state.phase !== 'lobby') return reject('match-in-progress');
       const exists = this.state.players.some((player) => player.id === message.from);
       if (!exists) {
-        if (this.state.players.length >= MAX_PLAYERS) return 'room-full';
+        if (this.state.players.length >= MAX_PLAYERS) return reject('room-full');
         this.state.players.push({
           id: message.from,
           name: message.name || 'player',
@@ -401,18 +469,21 @@ export class Room {
       return 'join';
     }
     if (message.type === 'ready') {
-      const player = this.state.players.find((item) => item.id === message.from);
-      if (player) player.ready = message.ready === true;
+      if (this.state.phase !== 'lobby') return 'not-lobby';
+      const player = this.state.players.find((item) => item.id === message.from && item.online);
+      if (!player) return 'unknown-player';
+      player.ready = message.ready === true;
       this.publishState();
       return 'ready';
     }
     if (message.type === 'ping') {
-      this.publish('ev', { type: 'pong', from: this.playerId, t0: message.t0, t1: this.now(), v: PROTO });
+      if (!this.state.players.some((player) => player.id === message.from && player.online)) return 'unknown-player';
+      this.publish('ev', { type: 'pong', from: this.playerId, to: message.from, t0: message.t0, t1: this.now(), v: PROTO });
       return 'ping';
     }
     if (message.type === 'rematch' || message.type === 'lobby') {
       if (this.state.phase !== 'finished' || message.matchId !== this.state.matchId) return 'old-match';
-      if (!this.state.players.some((player) => player.id === message.from)) return 'unknown-player';
+      if (!this.state.players.some((player) => player.id === message.from && player.online && !player.withdrawn)) return 'unknown-player';
       if (message.type === 'lobby') this.returnToLobby();
       else {
         this.state.rematchRequested = message.from;
@@ -424,10 +495,11 @@ export class Room {
   }
 
   recordResult(playerId, result) {
+    if (!result || typeof result !== 'object') return;
     this.results[playerId] = result;
     this.state.results = { ...this.results };
-    const everyoneDone = this.state.players.every((player) => this.results[player.id]);
-    if (everyoneDone) this.state.phase = 'finished';
+    const everyoneDone = this.state.participantIds.length > 0 && this.state.participantIds.every((id) => this.results[id]);
+    if (this.isHost && everyoneDone) this.state.phase = 'finished';
     if (this.isHost) this.publishState();
   }
 }

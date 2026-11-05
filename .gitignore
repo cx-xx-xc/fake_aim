@@ -2,6 +2,9 @@
 node_modules/
 *.log
 
+# 临时/备份
+.git-damaged/
+
 # 编辑器与系统
 .vscode/
 .idea/

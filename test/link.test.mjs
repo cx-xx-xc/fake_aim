@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { openRoom, newPlayerId, BROKERS } from '../net/link.js';
+import { openRoom, newPlayerId } from '../net/link.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(check, label, timeoutMs = 15000) {
@@ -15,15 +15,23 @@ const links = [];
 try {
   const host = await openRoom({ role: 'host', name: 'host', playerId: newPlayerId() });
   links.push(host);
-  console.log(`[link] host room ${host.code} via ${host.broker}`);
-  // Every guest must use the same relay selected by the host.
-  const brokers = BROKERS.filter((broker) => broker.label === host.broker);
-  const guestOptions = (name) => ({ role: 'guest', code: host.code, name, playerId: newPlayerId(), brokers });
+  console.log(`[link] host room ${host.shareCode} via ${host.broker}`);
+  assert.match(host.shareCode, /^[2-9A-HJ-NP-Z]{6}-[EH]$/, 'shared code names the relay that hosts the room');
+  // The code alone must select the relay: guests deliberately get no broker hint.
+  const guestOptions = (name) => ({ role: 'guest', code: host.shareCode, name, playerId: newPlayerId() });
   for (let index = 1; index < 5; index += 1) {
     const guest = await openRoom(guestOptions(`guest${index}`));
     links.push(guest);
+    assert.equal(guest.code, host.code, 'share code resolves to the same room id');
+    assert.equal(guest.shareCode, host.shareCode);
     assert.ok(guest.room.state.players.some((player) => player.id === guest.room.playerId), 'initial admission snapshot');
   }
+  // Same six characters on the other relay is a different room, not this one.
+  const otherRelay = host.shareCode.endsWith('-E') ? 'H' : 'E';
+  await assert.rejects(
+    openRoom({ role: 'guest', code: `${host.code}-${otherRelay}`, name: 'wrong-relay', playerId: newPlayerId(), timeoutMs: 2500 }),
+    /^Error: room-not-found$/,
+  );
   await until(() => links.every((link) => link.room.state.players.length === 5), 'all five-player snapshots');
   await assert.rejects(openRoom(guestOptions('sixth')), /^Error: room-full$/);
   await assert.rejects(openRoom({ ...guestOptions('incompatible'), app: '0.0.0' }), /^Error: app-mismatch$/);

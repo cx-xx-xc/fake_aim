@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import {
   buildTargets,
   estimateClockOffset,
+  formatShareCode,
   mulberry32,
   normalizeCode,
+  parseInvite,
   randomCode,
   Room,
   topicsFor,
@@ -30,6 +32,29 @@ test('normalizeCode rejects wrong length', () => {
   assert.equal(normalizeCode('7K3Q'), '');
   assert.equal(normalizeCode(''), '');
   assert.equal(normalizeCode('!!!!!!'), '');
+});
+
+test('share codes carry the relay that hosts the room', () => {
+  assert.equal(formatShareCode('ABC234', 'emqx'), 'ABC234-E');
+  assert.equal(formatShareCode('ABC234', 'hivemq'), 'ABC234-H');
+  assert.equal(formatShareCode('ABC234', 'somewhere'), 'ABC234');
+  assert.deepEqual(parseInvite('ABC234-E'), { code: 'ABC234', relay: 'emqx' });
+  assert.deepEqual(parseInvite('abc 234 h'), { code: 'ABC234', relay: 'hivemq' });
+  assert.deepEqual(parseInvite('ABC234E'), { code: 'ABC234', relay: 'emqx' });
+  assert.deepEqual(parseInvite('房间码 ABC234-H，快来'), { code: 'ABC234', relay: 'hivemq' });
+  assert.equal(normalizeCode('ABC234-E'), 'ABC234');
+});
+
+test('bare legacy codes still parse without a relay', () => {
+  assert.deepEqual(parseInvite('ABC234'), { code: 'ABC234', relay: '' });
+  assert.deepEqual(parseInvite('  7k3q 9f '), { code: '7K3Q9F', relay: '' });
+});
+
+test('share codes reject bad relay letters and truncated bodies', () => {
+  assert.deepEqual(parseInvite('ABC234-X'), { code: '', relay: '' });
+  assert.deepEqual(parseInvite('ABC23-E'), { code: '', relay: '' });
+  assert.deepEqual(parseInvite('ABC23O-E'), { code: '', relay: '' });
+  assert.deepEqual(parseInvite(''), { code: '', relay: '' });
 });
 
 test('codes use the safe alphabet and full length', () => {

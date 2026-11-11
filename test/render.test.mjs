@@ -178,7 +178,7 @@ const visit = (node, pathName, overrides) => {
 const Trainer = registered.component;
 assert.equal(updatePanel.position.key, '@local/aim-trainer');
 visit(React.createElement(updatePanel.component, { view: 'page' }), 'updates', {});
-assert.ok(seenText.some((text) => text.includes('1.3.0')), 'current version is visible');
+assert.ok(seenText.some((text) => text.includes('1.3.1')), 'current version is visible');
 assert.ok(seenText.includes('checkUpdates'), 'check button rendered');
 visit(React.createElement(updatePanel.component, { view: 'page' }), 'updates-error', { 'updates-error': { 0: { status: 'error' } } });
 assert.ok(seenText.includes('updateFailed'), 'failure is shown explicitly');
@@ -269,6 +269,9 @@ assert.deepEqual(seenElements.filter((node) => node.props.className === 'at-play
 const lobby = { ...five, hostId: 'p1', phase: 'lobby', mode: 'reaction', rounds: 20, startAt: 0, results: {}, participantIds: [] };
 renderMatch(lobby);
 assert.ok(seenText.some((text) => text.includes('5 / 5')), 'all five room slots shown');
+renderMatch({ ...lobby, shareCode: 'ABC234-E' });
+assert.ok(seenText.includes('ABC234-E'), 'the shared code names the relay and is what guests copy');
+renderMatch(lobby);
 let select = seenElements.find((node) => node.type === 'select');
 assert.equal(select.props.disabled, false);
 assert.equal(select.props.value, 20);
@@ -308,4 +311,10 @@ for (const [open, tab] of [[false, 'versus'], [true, 'records']]) {
   assert.ok(seenText.includes('1/20'), 'the reaction drill stays mounted when hidden');
   if (!open) assert.equal(seenElements.find((node) => node.type === 'section' && node.props.className === 'at-win').props.style.display, 'none');
 }
+// A solo drill is hidden, not unmounted, when the tab changes.
+seenElements.length = 0; seenText.length = 0;
+visit(React.createElement(Trainer, {}), 'solo', { solo: { 0: true, 1: 'records' } });
+assert.ok(seenClasses.has('at-modes'), 'solo mode picker survives a tab change');
+assert.ok(seenClasses.has('at-arena'), 'solo drill keeps its arena instead of resetting');
+assert.ok(seenElements.some((node) => node.type === 'div' && node.props.style && node.props.style.display === 'none'), 'the solo view is hidden while records is shown');
 console.log('[render] PASS  views, five-player standings, withdrawals, host round controls, readiness and retained drills');

@@ -103,6 +103,9 @@ try {
   assert.ok(Math.abs(offset + SKEW) < 300, `offset drifted: ${offset}`);
 
   // --- start ----------------------------------------------------------------
+  host.setReady(true);
+  guest.setReady(true);
+  await waitFor('both players ready', () => host.state.players.length === 2 && host.state.players.every((player) => player.ready));
   assert.equal(host.startMatch('click'), true);
   await waitFor('guest sees countdown', () => guest.state.phase === 'countdown');
   assert.equal(guest.state.seed, host.state.seed);
@@ -131,6 +134,8 @@ try {
   host.finish({ score: 41, acc: 0.93, avgMs: 430 });
   await waitFor('match finished', () => host.state.phase === 'finished', 15000);
   await waitFor('guest sees results', () => Object.keys(guest.state.results).length === 2);
+  // Results arrive as events; the authoritative phase follows in the next state snapshot.
+  await waitFor('guest sees final phase', () => guest.state.phase === 'finished');
 
   assert.deepEqual(host.state.results, {
     p2: { score: 28, acc: 0.84, avgMs: 610 },

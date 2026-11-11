@@ -33,10 +33,15 @@
         noRecord: 'No record yet', done: 'Drill over', ready: 'Get ready', now: 'Now!',
         early: 'Too soon — wait for the target.', timeUp: 'Time is up.',
         ms: 'ms', sec: 's', newRecord: 'New record',
+        ghost: 'Ghost opponent', ghostHint: 'Race the pace of your best completed click run. Target positions are random.',
+        ghostEmpty: 'Finish a click drill to record your first ghost.', ghostSaved: 'New ghost saved for next time.',
+        ghostStorage: 'Ghost recording is unavailable. Check browser storage.',
+        ghostAhead: 'Ahead by', ghostBehind: 'Behind by', ghostTied: 'Tied with ghost', ghostBest: 'Ghost final score',
         versusTab: 'Versus',
         nameLabel: 'Your name', codeLabel: 'Room code',
         createRoom: 'Create room', joinRoom: 'Join room', connect: 'Connect',
-        joinHint: 'Type the 6-character code your friend sends you.',
+        joinHint: 'Paste the whole code your friend sends, relay letter included (e.g. ABC234-E).',
+        relayHint: 'The last letter names the relay. Send the whole code.',
         connecting: 'Connecting to the relay…', online: 'Relay', latency: 'Latency',
         copyCode: 'Copy code', copied: 'Copied', leaveRoom: 'Leave room',
         waitingFriend: 'Waiting for a friend to join…', rivalJoined: 'Rival joined',
@@ -52,6 +57,12 @@
         you: 'You', rival: 'Rival', youWin: 'You win', youLose: 'You lose', draw: 'Draw',
         rematch: 'Rematch', waitingHost: 'Waiting for the host…', results: 'Result',
         offline: 'Relay connection lost.', roomMissing: 'No live room with that code yet.',
+        relayUnreachable: 'Cannot reach the relay that hosts this room. Check your network and try again.',
+        unknownRelay: 'That relay letter is not recognised. Ask the host to share the code again.',
+        connectTimeout: 'Timed out reaching the relay. Check your network and try again.',
+        codeUnavailable: 'No free room code right now. Please try again.',
+        webSocketUnavailable: 'This environment cannot open a WebSocket, so multiplayer is unavailable.',
+        badCode: 'That room code looks incomplete. Check all characters and try again.',
         cancel: 'Back', syncHint: 'Clock sync in progress…',
         backToRoom: 'Back to room', waitingResult: 'Score submitted. Waiting for the other players…',
         requestRematch: 'Request rematch', rematchRequested: 'Rematch requested',
@@ -81,10 +92,15 @@
         noRecord: '还没有记录', done: '训练结束', ready: '准备', now: '点它！',
         early: '太早了，等靶子出现。', timeUp: '时间到。',
         ms: '毫秒', sec: '秒', newRecord: '新纪录',
+        ghost: '幽灵对手', ghostHint: '跟自己最好一局的命中节奏竞速，靶子位置仍随机生成。',
+        ghostEmpty: '完成一局点击训练，就能录下你的第一个幽灵。', ghostSaved: '已保存新幽灵，下局即可挑战。',
+        ghostStorage: '无法保存幽灵记录，请检查浏览器存储设置。',
+        ghostAhead: '领先', ghostBehind: '落后', ghostTied: '与幽灵持平', ghostBest: '幽灵最终成绩',
         versusTab: '对战',
         nameLabel: '你的昵称', codeLabel: '房间码',
         createRoom: '创建房间', joinRoom: '加入房间', connect: '连接',
-        joinHint: '输入好友发来的 6 位房间码。',
+        joinHint: '粘贴好友发来的完整房间码，末尾的中继字母也要带上，例如 ABC234-E。',
+        relayHint: '末位字母代表中继，转发时请整串发送。',
         connecting: '正在连接中继…', online: '中继', latency: '延迟',
         copyCode: '复制房间码', copied: '已复制', leaveRoom: '离开房间',
         waitingFriend: '等待好友加入…', rivalJoined: '对手已加入',
@@ -100,6 +116,12 @@
         you: '你', rival: '对手', youWin: '你赢了', youLose: '你输了', draw: '平局',
         rematch: '再来一局', waitingHost: '等待房主开始…', results: '结果',
         offline: '中继连接已断开。', roomMissing: '还没有这个房间码的对局。',
+        relayUnreachable: '连不上房主所在的中继，请检查网络后重试。',
+        unknownRelay: '房间码里的中继标识无法识别，请让房主重新分享。',
+        connectTimeout: '连接中继超时，请检查网络后重试。',
+        codeUnavailable: '暂时找不到空闲房间码，请再试一次。',
+        webSocketUnavailable: '当前环境不支持 WebSocket，无法联机。',
+        badCode: '房间码不完整，请检查后重试。',
         cancel: '返回', syncHint: '正在同步时钟…',
         backToRoom: '返回房间', waitingResult: '成绩已提交，等待其他玩家完成…',
         requestRematch: '请求再来一局', rematchRequested: '已请求重开',
@@ -162,7 +184,7 @@
       .at-row { display:flex; gap:8px; }
       .at-row > * { flex:1; }
       .at-codebox { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid #1e3440; border-radius:6px; background:linear-gradient(180deg,#0c1a1f,#0a1218); }
-      .at-code { color:#eafffa; font-size:27px; font-weight:850; letter-spacing:.32em; font-variant-numeric:tabular-nums; }
+      .at-code { color:#eafffa; font-size:25px; font-weight:850; letter-spacing:.24em; font-variant-numeric:tabular-nums; }
       .at-ghost { min-height:32px; padding:0 10px; border:1px solid #223141; border-radius:4px; background:transparent; color:#9fb2c2; font:inherit; font-size:11px; letter-spacing:.1em; text-transform:uppercase; cursor:pointer; }
       .at-ghost:hover, .at-ghost:focus-visible { border-color:#00e5c0; color:#00e5c0; outline:none; }
       .at-players { display:flex; flex-direction:column; border:1px solid #1a222c; border-radius:6px; overflow:hidden; }
@@ -244,13 +266,23 @@
       const [shots, setShots] = React.useState(0);
       const [pos, setPos] = React.useState(spot);
       const [record, setRecord] = React.useState(false);
+      const [ghostEnabled, setGhostEnabled] = React.useState(() => {
+        try { return window.localStorage.getItem(GHOST_ENABLED_KEY) !== 'false'; } catch { return true; }
+      });
+      const [ghostRun, setGhostRun] = React.useState(() => readGhost(window.localStorage, CLICK_TIME * 1000));
+      const [ghostElapsed, setGhostElapsed] = React.useState(0);
+      const [ghostNotice, setGhostNotice] = React.useState('');
+      const clickRun = React.useRef({ start: null, hits: [] });
       const [tick, setTick] = useCountdown(phase, setPhase, () => setPhase('running'), 2);
 
       React.useEffect(() => {
         if (phase !== 'running') return undefined;
         const started = performance.now();
+        clickRun.current.start = started;
         const id = window.setInterval(() => {
-          const remain = CLICK_TIME - (performance.now() - started) / 1000;
+          const elapsed = performance.now() - started;
+          setGhostElapsed(Math.min(CLICK_TIME * 1000, elapsed));
+          const remain = CLICK_TIME - elapsed / 1000;
           if (remain <= 0) {
             window.clearInterval(id);
             setLeft(0);
@@ -261,10 +293,20 @@
       }, [phase]);
 
       React.useEffect(() => {
-        if (phase === 'done') setRecord(onFinish('click', hits) === true);
+        if (phase !== 'done') return;
+        setRecord(onFinish('click', hits) === true);
+        const previous = readGhost(window.localStorage, CLICK_TIME * 1000);
+        if (clickRun.current.hits.length > (previous?.hits.length || 0)) {
+          const saved = saveGhost(window.localStorage, clickRun.current.hits, CLICK_TIME * 1000);
+          setGhostNotice(saved ? 'ghostSaved' : 'ghostStorage');
+        }
       }, [phase]);
 
       function start() {
+        clickRun.current = { start: null, hits: [] };
+        setGhostRun(readGhost(window.localStorage, CLICK_TIME * 1000));
+        setGhostElapsed(0);
+        setGhostNotice('');
         setHits(0);
         setShots(0);
         setLeft(CLICK_TIME);
@@ -276,14 +318,38 @@
 
       function hit(event) {
         event.stopPropagation();
+        if (phase !== 'running' || clickRun.current.start === null) return;
+        const elapsed = performance.now() - clickRun.current.start;
+        if (elapsed < 0 || elapsed >= CLICK_TIME * 1000) return;
+        clickRun.current.hits.push(elapsed);
+        setGhostElapsed(elapsed);
         setHits((n) => n + 1);
         setShots((n) => n + 1);
         setPos(spot());
       }
 
       const accuracy = shots > 0 ? Math.round((hits / shots) * 100) : 0;
+      const ghostHits = ghostScoreAt(ghostRun, ghostElapsed);
+      const delta = hits - ghostHits;
+      const ghostScale = Math.max(1, hits, ghostRun?.hits.length || 0);
 
       return h('div', null,
+        h('div', { className: 'at-ghost-controls', style: { padding: '10px 14px' } },
+          h('label', null,
+            h('input', { type: 'checkbox', checked: ghostEnabled, disabled: phase === 'running' || phase === 'countdown',
+              onChange: (event) => {
+                const enabled = event.target.checked;
+                setGhostEnabled(enabled);
+                try { window.localStorage.setItem(GHOST_ENABLED_KEY, String(enabled)); } catch { /* session preference */ }
+              } }), ' ', t('ghost')),
+          h('div', { className: 'at-note' }, ghostEnabled ? t(ghostRun ? 'ghostHint' : 'ghostEmpty') : t('ghostHint')),
+          ghostEnabled && ghostRun && h('div', { className: 'at-ghost-race' },
+            h('div', null, `${t('you')}: ${hits} · ${t('ghost')}: ${ghostHits} · ${t('ghostBest')}: ${ghostRun.hits.length}`),
+            h('label', { style: { display: 'block' } }, t('you'), ' ', h('progress', { value: hits, max: ghostScale, 'aria-label': t('you') })),
+            h('label', { style: { display: 'block' } }, t('ghost'), ' ', h('progress', { value: ghostHits, max: ghostScale, 'aria-label': t('ghost') })),
+            h('div', { className: 'at-note' }, delta === 0 ? t('ghostTied') : `${t(delta > 0 ? 'ghostAhead' : 'ghostBehind')} ${Math.abs(delta)}`)),
+          ghostNotice && h('div', { className: 'at-note', role: 'status' }, t(ghostNotice)),
+        ),
         h('div', { className: 'at-arena', onPointerDown: () => { if (phase === 'running') setShots((n) => n + 1); } },
           h('div', { className: 'at-grid' }),
           phase === 'running' && h('button', { type: 'button', className: 'at-target', style: { left: pos.x + '%', top: pos.y + '%' }, onPointerDown: hit, 'aria-label': t('hits') }),
@@ -502,6 +568,7 @@
         const room = link.room;
         setSnap({
           code: link.code,
+          shareCode: link.shareCode || link.code,
           broker: link.broker,
           role: room.role,
           hostId: room.state.hostId,
@@ -827,7 +894,7 @@
       const playing = Boolean(snap && startLocal && now >= startLocal && !finished && !submitted);
 
       function copyCode() {
-        const code = snap ? snap.code : '';
+        const code = snap ? snap.shareCode || snap.code : '';
         if (!code) return;
         const done = () => {
           setCopied(true);
@@ -863,18 +930,30 @@
             h('input', {
               className: 'at-input',
               value: codeInput,
-              maxLength: 9,
-              placeholder: 'ABC123',
+              maxLength: 10,
+              placeholder: 'ABC234-E',
               onChange: (event) => setCodeInput(event.target.value.toUpperCase()),
             }),
           ),
           h('button', {
             className: 'at-ghost',
             type: 'button',
-            disabled: normalizeCode(codeInput).length !== 6,
-            onClick: () => vs.connect('guest', normalizeCode(codeInput)),
+            disabled: parseInvite(codeInput).code.length !== 6,
+            onClick: () => vs.connect('guest', parseInvite(codeInput).code ? codeInput : ''),
           }, t('joinRoom')),
-          h('p', { className: 'at-note' }, vs.stage === 'error' ? ({ 'no-broker': t('offline'), 'room-full': t('roomFull'), 'match-in-progress': t('matchInProgress'), 'app-mismatch': t('versionMismatch'), 'room-not-found': t('roomMissing') }[vs.error] || vs.error) : t('joinHint')),
+          h('p', { className: 'at-note' }, vs.stage === 'error' ? ({
+            'no-broker': t('offline'),
+            'room-full': t('roomFull'),
+            'match-in-progress': t('matchInProgress'),
+            'app-mismatch': t('versionMismatch'),
+            'room-not-found': t('roomMissing'),
+            'relay-unreachable': t('relayUnreachable'),
+            'unknown-relay': t('unknownRelay'),
+            'connect-timeout': t('connectTimeout'),
+            'room-code-unavailable': t('codeUnavailable'),
+            'websocket-unavailable': t('webSocketUnavailable'),
+            'bad-code': t('badCode'),
+          }[vs.error] || vs.error) : t('joinHint')),
         );
       }
 
@@ -926,7 +1005,8 @@
         h('div', { className: 'at-codebox' },
           h('div', null,
             h('div', { className: 'at-label' }, t('codeLabel')),
-            h('div', { className: 'at-code' }, snap.code),
+            h('div', { className: 'at-code' }, snap.shareCode || snap.code),
+            h('div', { className: 'at-note' }, t('relayHint')),
           ),
           h('button', { className: 'at-ghost', type: 'button', onClick: copyCode }, copied ? t('copied') : t('copyCode')),
         ),
@@ -1091,7 +1171,7 @@
               h('button', { className: 'at-tab', role: 'tab', type: 'button', 'aria-selected': tab === 'versus', onClick: () => setTab('versus') }, t('versusTab')),
               h('button', { className: 'at-tab', role: 'tab', type: 'button', 'aria-selected': tab === 'records', onClick: () => setTab('records') }, t('recordTab')),
             ),
-            tab === 'train' ? h('div', null,
+            h('div', { style: { display: tab === 'train' ? 'block' : 'none' } },
               h('div', { className: 'at-modes' },
                 ['click', 'reaction', 'track'].map((key) =>
                   h('button', { key, type: 'button', className: 'at-mode', 'aria-pressed': mode === key, onClick: () => setMode(key) }, t(key)),
@@ -1100,7 +1180,7 @@
               mode === 'click' && h(ClickGame, { key: 'click', t, onFinish: record }),
               mode === 'reaction' && h(ReactionGame, { key: 'reaction', t, onFinish: record }),
               mode === 'track' && h(TrackGame, { key: 'track', t, onFinish: record }),
-            ) : null,
+            ),
             h('div', { style: { display: tab === 'versus' ? 'block' : 'none' } }, h(VersusPanel, { vs, t })),
             tab === 'records' ? h('div', { className: 'at-records' },
               row(t('clickBest'), records.click, ''),

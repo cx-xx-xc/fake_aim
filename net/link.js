@@ -1,5 +1,5 @@
 import { MqttClient } from './mqtt.js';
-import { Room, topicsFor, randomCode } from './room.js';
+import { Room, topicsFor, randomCode, parseInvite, formatShareCode } from './room.js';
 
 /**
  * Broker choices, in reachability order. Both are public test brokers: they give
@@ -55,9 +55,17 @@ export async function openRoom(options) {
 
   if (!globalThis.WebSocket) throw new Error('websocket-unavailable');
 
+  // A tagged invite ("ABC234-E") names the relay that hosts the room; a bare
+  // six-character code tries every relay in turn, which is what older invites did.
+  const invite = parseInvite(wanted);
+  if (role === 'guest' && !invite.code) throw new Error('bad-code');
+  const candidates = invite.relay ? brokers.filter((broker) => broker.id === invite.relay) : brokers;
+  if (!candidates.length) throw new Error('unknown-relay');
+  const pinned = Boolean(invite.relay);
+
   let lastError = null;
 
-  for (const broker of brokers) {
+  for (const broker of candidates) {
     onStatus({ phase: 'connecting', broker: broker.label });
 
     const client = new MqttClient({
@@ -136,7 +144,7 @@ export async function openRoom(options) {
     // Host: only trust a code that has no retained snapshot behind it, otherwise a
     // stranger's dead room would capture players who type the same six characters.
     if (role === 'host') {
-      let candidate = String(wanted || '').trim().toUpperCase();
+      let candidate = invite.code;
       for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt += 1) {
         if (!candidate) candidate = randomCode();
         probed = false;
@@ -154,7 +162,7 @@ export async function openRoom(options) {
         continue;
       }
     } else {
-      code = String(wanted || '').trim().toUpperCase();
+      code = invite.code;
       subscribe(code);
       await wait(PROBE_MS);
     }
@@ -181,7 +189,7 @@ export async function openRoom(options) {
           onStatus({ phase: 'error', broker: broker.label, reason: error.message });
           throw error;
         }
-        lastError = error;
+        lastError = error.message === 'connect-timeout' ? new Error('room-not-found') : error;
         continue;
       }
     }
@@ -204,6 +212,7 @@ export async function openRoom(options) {
     return {
       room,
       code,
+      shareCode: formatShareCode(code, broker.id),
       broker: broker.label,
       close() {
         if (closed) return;
@@ -215,5 +224,8 @@ export async function openRoom(options) {
     };
   }
 
+  // With a tagged invite we never silently try another relay: either that relay
+  // is unreachable, or it is reachable and no such room is hosted there.
+  if (pinned && lastError && lastError.message !== 'room-not-found') throw new Error('relay-unreachable');
   throw lastError || new Error('no-broker');
 }

@@ -7,7 +7,7 @@
  */
 
 export const PROTO = 1;
-export const APP_VERSION = '1.3.0';
+export const APP_VERSION = '1.3.1';
 
 /** Room codes avoid 0/O/1/I so they survive being read aloud or typed. */
 export const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -39,14 +39,60 @@ export function randomCode(random = Math.random) {
   return code;
 }
 
-/** Accepts "7k3q 9f", "7K3Q-9F" or a whole invite sentence. */
+/** Relay ids and the single character each contributes to a shared room code. */
+export const RELAY_TAGS = { emqx: 'E', hivemq: 'H' };
+
+export function relayTag(brokerId) {
+  return RELAY_TAGS[brokerId] || '';
+}
+
+/**
+ * A room only exists on the broker that created it, so the invite has to name
+ * that broker: "ABC234-E" is the room "ABC234" on the EMQX relay.
+ */
+export function formatShareCode(code, brokerId) {
+  const tag = relayTag(brokerId);
+  return tag ? `${code}-${tag}` : code;
+}
+
+function isValidCode(text) {
+  return text.length === CODE_LENGTH && [...text].every((char) => CODE_ALPHABET.includes(char));
+}
+
+function relayOf(tag) {
+  return Object.keys(RELAY_TAGS).find((brokerId) => RELAY_TAGS[brokerId] === tag) || '';
+}
+
+/**
+ * Splits a typed invite into the room id and, when one is present, its relay.
+ * A bare six-character code stays valid and will try every relay in turn.
+ *
+ * Accepted shapes: "ABC234-E", "abc 234 e", "ABC234E" and any sentence that
+ * carries one of them. A trailing relay letter on a five-character body is a
+ * truncated share code, not a room, so it is rejected rather than guessed at.
+ */
+export function parseInvite(input) {
+  const parts = String(input ?? '').toUpperCase().split(/[^0-9A-Z]+/).filter(Boolean);
+  const joined = parts.join('');
+  if (parts.length > 1) {
+    const body = parts.slice(0, -1).join('');
+    const tag = parts[parts.length - 1];
+    if (tag.length === 1 && relayOf(tag)) {
+      return isValidCode(body) ? { code: body, relay: relayOf(tag) } : { code: '', relay: '' };
+    }
+  }
+  if (isValidCode(joined)) return { code: joined, relay: '' };
+  if (joined.length === CODE_LENGTH + 1) {
+    const code = joined.slice(0, CODE_LENGTH);
+    const relay = relayOf(joined.slice(CODE_LENGTH));
+    return isValidCode(code) && relay ? { code, relay } : { code: '', relay: '' };
+  }
+  return { code: '', relay: '' };
+}
+
+/** Accepts "7k3q 9f", "7K3Q-9F", "7K3Q9F-E" or a whole invite sentence. */
 export function normalizeCode(input) {
-  const cleaned = String(input ?? '')
-    .toUpperCase()
-    .split('')
-    .filter((char) => CODE_ALPHABET.includes(char))
-    .join('');
-  return cleaned.length === CODE_LENGTH ? cleaned : '';
+  return parseInvite(input).code;
 }
 
 export function mulberry32(seed) {

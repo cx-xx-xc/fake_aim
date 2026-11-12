@@ -7,7 +7,7 @@
  */
 
 export const PROTO = 1;
-export const APP_VERSION = '1.3.1';
+export const APP_VERSION = '2.0.0';
 
 /** Room codes avoid 0/O/1/I so they survive being read aloud or typed. */
 export const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';

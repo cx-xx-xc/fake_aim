@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aim Trainer Preview</title>
+  <style>
+    :root { color-scheme: dark; --dsw-alias-border-l1:#2c323a; --dsw-alias-border-l2:#3d4651; --dsw-alias-bg-layer-1:#1b2027; --dsw-alias-bg-layer-2:#252c35; --dsw-alias-bg-base:#14171c; --dsw-alias-label-primary:#e7e9ed; --dsw-alias-label-secondary:#9098a4; --dsw-alias-brand-primary:#5a91f8; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:#14171c; color:#d5d9df; font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif; }
+    .preview-top { height:62px; padding:0 28px; display:flex; align-items:center; gap:14px; border-bottom:1px solid #252a32; }
+    .preview-brand { font-size:15px; font-weight:600; letter-spacing:.02em; }
+    .preview-tag { font-size:10px; color:#778292; letter-spacing:.16em; }
+    .preview-tools { margin-left:auto; display:flex; align-items:center; gap:12px; }
+    .preview-tools label { font-size:12px; color:#929ba8; }
+    .preview-tools select { background:#1d222a; color:#c3cad4; border:1px solid #363e49; border-radius:6px; padding:5px 8px; font:inherit; }
+    .preview-shell { max-width:720px; margin:clamp(90px,19vh,210px) auto 0; padding:0 28px; }
+    .preview-shell h1 { font-size:27px; font-weight:500; margin:0 0 8px; color:#b8c0cb; }
+    .preview-shell p { color:#6e7989; margin:0; }
+    .preview-compose { margin-top:36px; height:106px; border:1px solid #2d3540; border-radius:18px; background:#191e25; padding:16px 20px; color:#687485; }
+    .preview-note { position:fixed; bottom:22px; left:28px; color:#586475; font-size:12px; }
+    .preview-error { margin:24px; padding:16px; background:#462326; border:1px solid #95434c; border-radius:8px; white-space:pre-wrap; }
+    #preview-config { position:relative; max-width:680px; margin:30px auto; }
+    @media(max-width:520px) { .preview-top { padding:0 16px; } .preview-tag { display:none; } .preview-tools label { display:none; } .preview-note { left:16px; max-width:65vw; } }
+  </style>
+</head>
+<body>
+  <header class="preview-top">
+    <span class="preview-brand">DeepSeek Harness</span>
+    <span class="preview-tag">LOCAL PREVIEW</span>
+    <div class="preview-tools"><label for="preview-language">Language</label><select id="preview-language"><option value="zh">中文</option><option value="en">English</option></select></div>
+  </header>
+  <main class="preview-shell"><h1>有什么可以帮你？</h1><p>A quiet workspace for your next idea.</p><div class="preview-compose">发送消息…</div></main>
+  <div class="preview-note">Aim Trainer · 点击右下角图标打开训练窗口</div>
+  <div id="preview-overlay"></div>
+  <div id="preview-config" hidden></div>
+  <script src="/react.js"></script>
+  <script src="/react-dom.js"></script>
+  <script>
+    (() => {
+      const query = new URLSearchParams(location.search);
+      let language = query.get('lang') === 'en' ? 'en' : 'zh';
+      const listeners = new Set();
+      const dictionaries = new Map();
+      const effects = [];
+      const registrations = [];
+      const roots = [];
+      const fail = (error) => {
+        document.documentElement.dataset.previewStatus = 'error';
+        let output = document.getElementById('preview-error');
+        if (!output) { output = document.createElement('pre'); output.id = 'preview-error'; output.className = 'preview-error'; document.body.append(output); }
+        output.textContent = 'Preview could not start: ' + (error?.stack || error?.message || error);
+      };
+      window.addEventListener('error', (event) => fail(event.error || event.message));
+      window.addEventListener('unhandledrejection', (event) => fail(event.reason));
+      const setLanguage = (next) => {
+        language = next === 'en' ? 'en' : 'zh';
+        document.documentElement.lang = language;
+        document.getElementById('preview-language').value = language;
+        listeners.forEach((listener) => listener());
+      };
+      setLanguage(language);
+      document.getElementById('preview-language').addEventListener('change', (event) => setLanguage(event.target.value));
+      const ctx = {
+        meta: { id: '@local/aim-trainer', name: 'Aim Trainer', version: 'development', key: '@local/aim-trainer' },
+        effect(callback) { const dispose = callback(); if (typeof dispose === 'function') effects.push(dispose); return dispose; },
+        locale: {
+          register(namespace, locale, dictionary) {
+            dictionaries.set(namespace + ':' + locale, dictionary);
+            return () => dictionaries.delete(namespace + ':' + locale);
+          },
+          bind(namespace) {
+            return (key, values = {}) => {
+              let value = dictionaries.get(namespace + ':' + language)?.[key] ?? dictionaries.get(namespace + ':en')?.[key] ?? key;
+              return String(value).replace(/\{(\w+)\}/g, (match, name) => values[name] ?? match);
+            };
+          },
+          subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+        },
+        slots: {
+          inject(name, callback) { return callback(); },
+          register(meta, Component) {
+            const entry = { meta, Component };
+            registrations.push(entry);
+            const container = document.createElement('div');
+            const parent = document.getElementById(meta.name === 'shell.overlay' ? 'preview-overlay' : 'preview-config');
+            container.dataset.previewSlot = meta.name;
+            parent.append(container);
+            const root = ReactDOM.createRoot(container);
+            roots.push(root);
+            root.render(React.createElement(Component));
+            return () => { root.unmount(); container.remove(); };
+          },
+        },
+      };
+      window.__AIM_PREVIEW__ = { ctx, registrations, dictionaries, setLanguage, get language() { return language; }, dispose() { roots.forEach((root) => root.unmount()); effects.reverse().forEach((dispose) => dispose()); } };
+      window.__ModuleLoader__ = {
+        load({ id, factory }) {
+          try {
+            if (!window.React || !window.ReactDOM) throw new Error('React UMD assets did not load. Place React 18 UMD files in the preview vendor directory or allow the development CDN.');
+            const plugin = factory((name) => { if (name === 'react') return React; throw new Error('Unsupported preview module: ' + name); });
+            window.__AIM_PREVIEW__.plugin = plugin;
+            window.__AIM_PREVIEW__.id = id;
+            plugin.apply(ctx);
+            document.documentElement.dataset.previewStatus = 'ready';
+            if (query.get('open') === '1') {
+              const openWhenMounted = () => {
+                const launch = document.querySelector('.at-launch');
+                if (!launch) return;
+                observer.disconnect();
+                launch.click();
+              };
+              const observer = new MutationObserver(openWhenMounted);
+              observer.observe(document.getElementById('preview-overlay'), { childList: true, subtree: true });
+              openWhenMounted();
+              setTimeout(() => observer.disconnect(), 10000);
+            }
+          } catch (error) { fail(error); throw error; }
+        },
+      };
+    })();
+  </script>
+  <script src="/client.js"></script>
+</body>
+</html>

@@ -1,8 +1,8 @@
 {
   "name": "@local/aim-trainer",
-  "version": "1.3.1",
+  "version": "2.0.0",
   "private": false,
-  "description": "Aim trainer floating window for the DeepSeek Harness Web UI: click, reaction and tracking drills, plus room-code matches for 2–5 players with configurable reaction rounds, in a draggable Aimlabs-style window.",
+  "description": "3D aim training for the DeepSeek Harness Web UI: mouse-look click, reaction and tracking drills, local history, ghost runs and 2–5 player rooms in a resizable Aimlabs-style window.",
   "type": "module",
   "license": "MIT",
   "author": "cx_x",

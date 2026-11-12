@@ -36,6 +36,11 @@ for (const name of NET) {
 const body = await readFile(path.join(root, 'src', 'trainer.js'), 'utf8');
 const updates = inlineModule(await readFile(path.join(root, 'src', 'updates.js'), 'utf8'), '../src/updates.js');
 const ghost = inlineModule(await readFile(path.join(root, 'src', 'ghost.js'), 'utf8'), '../src/ghost.js');
+const feel = inlineModule(await readFile(path.join(root, 'src', 'feel.js'), 'utf8'), '../src/feel.js');
+const scene = inlineModule(await readFile(path.join(root, 'src', 'scene3d.js'), 'utf8'), '../src/scene3d.js');
+const range = inlineModule(await readFile(path.join(root, 'src', 'range.js'), 'utf8'), '../src/range.js');
+const rangeUI = inlineModule(await readFile(path.join(root, 'src', 'range-ui.js'), 'utf8'), '../src/range-ui.js');
+const appStyle = inlineModule(await readFile(path.join(root, 'src', 'app-style.js'), 'utf8'), '../src/app-style.js');
 
 const out = `window.__ModuleLoader__.load({
   id: '@local/aim-trainer',
@@ -44,6 +49,11 @@ const out = `window.__ModuleLoader__.load({
 ${parts.join('')}
 ${updates}
 ${ghost}
+${feel}
+${scene}
+${range}
+${rangeUI}
+${appStyle}
     // ---- src/trainer.js ----
 ${body.trimEnd()}
   },

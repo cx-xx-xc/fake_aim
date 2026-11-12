@@ -30,15 +30,8 @@ const zh = new Set(Object.keys(dictionaries.zh));
 assert.deepEqual([...en].filter((key) => !zh.has(key)), [], 'zh is missing keys present in en');
 assert.deepEqual([...zh].filter((key) => !en.has(key)), [], 'en is missing keys present in zh');
 
-// 3. Duel drills position targets from buildTargets(), whose coordinates are
-//    normalised 0..1 — rendering them straight as percentages pinned every orb
-//    to the arena's top-left corner. Guard the conversion in both duel modes.
-assert.match(bundle, /left: target\.x \* 100 \+ '%'/, 'duel click scales x to percent');
-assert.match(bundle, /top: target\.y \* 100 \+ '%'/, 'duel click scales y to percent');
-assert.match(bundle, /left: spot\.x \* 100 \+ '%'/, 'duel reaction scales x to percent');
-assert.match(bundle, /top: spot\.y \* 100 \+ '%'/, 'duel reaction scales y to percent');
-
-// 4. Every t('key') the code asks for exists in both locales.
+// 3. Every t('key') the code asks for exists in both locales. The rendered
+//    range tests also exercise labels selected dynamically by drill mode.
 const used = new Set([...bundle.matchAll(/\bt\('([A-Za-z0-9_]+)'\)/g)].map((match) => match[1]));
 const missing = [...used].filter((key) => !en.has(key));
 assert.deepEqual(missing, [], `missing locale keys: ${missing.join(', ')}`);

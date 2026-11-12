@@ -1,17 +1,40 @@
     const h = React.createElement;
     const NS = 'aim-trainer';
-    const REC_KEY = 'aim-trainer:records:v1';
-    const POS_KEY = 'aim-trainer:panel:v1';
+    const REC_KEY = RANGE_RECORDS_KEY;
+    const POS_KEY = 'aim-trainer:3d:panel:v1';
     const NAME_KEY = 'aim-trainer:name:v1';
     const PID_KEY = 'aim-trainer:player:v1';
-    const WIDTH = 560;
-    const CLICK_TIME = 30;
-    const TRACK_TIME = 20;
-    const REACTION_ROUNDS = 8;
-    const COUNT_STEP = 900;
+    const WIDTH = 1040;
+    const HEIGHT = 780;
+    const SIZE_KEY = 'aim-trainer:3d:size:v1';
+    const { RangeGame, RangeSettings, RangeRecords } = createRange(React);
 
     const DICTS = {
       en: {
+        brandTagline: 'PRECISION TRAINING', settingsTab: 'Settings', settingsHint: 'Tune your controls and the look of your range.',
+        trainingLibrary: 'TRAINING LIBRARY', localTraining: 'Your personal range', localTrainingHint: 'Train at your own pace. Completed solo sessions stay in this browser.',
+        gridshot: 'GRIDSHOT', reactionTask: 'REFLEX SHOT', trackingTask: 'SPHERE TRACK',
+        clickCategory: 'Precision & speed', reactionCategory: 'Reaction & timing', trackCategory: 'Control & consistency',
+        clickHint3d: 'Move your view to bring each sphere into the centre crosshair. Left-click to fire. Keep a steady rhythm across all three targets.',
+        reactionHint3d: 'Wait for the sphere to appear, then move your view and fire. Only hits count toward your reaction time.',
+        trackHint3d: 'Move your view to keep the centre crosshair on the moving sphere. Stay on target for as much of the session as possible.',
+        mouseLookHint: 'Mouse to look · Left-click to fire · Esc to pause',
+        focusTitle: 'Build control', improveTitle: 'Measure your progress', improveHint: 'Stay precise before increasing speed. Compare your completed sessions in Records.',
+        sensitivity: 'Mouse sensitivity', fieldOfView: 'Field of view', settingsControls: 'CONTROLS', settingsPresentation: 'PRESENTATION',
+        sensitivityHint: 'Sensitivity is measured in degrees per mouse pixel. These settings are shared by all three tasks and saved in this browser.',
+        sceneLabel: 'Three-dimensional aim training range', pause: 'Pause and release mouse', paused: 'Training paused',
+        pauseHint: 'Your training clock is paused. Continue to capture the mouse and return to the range.',
+        inputReleased: 'Mouse released', onlineClockContinues: 'This is an online match. The match clock keeps running while your mouse is released.',
+        resumeTraining: 'Continue training', backToTasks: 'Back to tasks', escapePause: 'ESC  ·  Release mouse / pause', waitForTarget: 'Wait for the target…',
+        webglUnavailable: 'This browser could not start WebGL. Enable hardware graphics or try a supported browser, then retry.',
+        webglLost: 'The graphics context was lost. Retry graphics to restore the range.',
+        pointerLockUnavailable: 'Mouse capture is unavailable here. Open the plugin in a browser that supports Pointer Lock.',
+        pointerLockFailed: 'Mouse capture failed. Click Continue or Start again to retry.', retryGraphics: 'Retry graphics',
+        sessionComplete: 'SESSION COMPLETE', sessionTrend: 'This session', recentRuns: 'Recent sessions',
+        score: 'Score', duration: 'Duration', targetsHit: 'Hits / shots', averageHitTime: 'Average time per hit', onTargetTime: 'Time on target', fastestReaction: 'Fastest reaction',
+        savedLocally: 'Saved in this browser', historyHint: 'Complete a training session to build your own performance history.',
+        saveFailed: 'Could not save this session. Your browser storage may be full or unavailable.', ghostSaveFailed: 'Could not save the new ghost.',
+        completedRuns: 'completed sessions', trainingTask: 'Training task', date: 'Date', legacyRecords: 'Previous 2D records',
         updateTitle: 'Plugin updates', currentVersion: 'Current version', latestVersion: 'Latest on GitHub',
         checkUpdates: 'Check for updates', checkingUpdates: 'Checking…', updateAvailable: 'A newer version is available.',
         updateCurrent: 'You are up to date.', updateAhead: 'This local version is newer than GitHub.',
@@ -22,12 +45,17 @@
         updateLocalHint: 'Local Git clone: run git pull in its directory instead, then refresh the page.',
         title: 'Aim Trainer', open: 'Open Aim Trainer', close: 'Close',
         center: 'Centre window', drag: 'Drag to move',
+        feelSound: 'Sound', feelCrosshair: 'Crosshair', feelGun: 'Weapon view', feelEffects: 'Hit effects',
+        feelCross: 'Cross', feelDot: 'Dot', feelRing: 'Ring',
+        rangeTitle: 'Precision range', rangeSubtitle: 'Find your rhythm. Make every shot count.',
+        shortcuts: 'Space · Start    Esc · Pause / release mouse', resize: 'Resize window', expand: 'Expand / restore',
+        resizeHint: 'Drag the corner to resize; arrow keys when focused.',
         trainTab: 'Drills', recordTab: 'Records',
         click: 'Click', reaction: 'Reaction', track: 'Tracking',
         start: 'Start drill', again: 'Run it again',
         clickHint: 'Hit every target. Background clicks lower your accuracy.',
         reactionHint: 'Wait for the target, then click it as fast as you can.',
-        trackHint: 'Keep the cursor on the moving target until time runs out.',
+        trackHint: 'Keep the centre crosshair on the moving target until time runs out.',
         hits: 'Hits', accuracy: 'Accuracy', timeLeft: 'Time left', round: 'Round',
         clickBest: 'Most hits', reactionBest: 'Fastest average', trackBest: 'Best on target',
         noRecord: 'No record yet', done: 'Drill over', ready: 'Get ready', now: 'Now!',
@@ -46,7 +74,7 @@
         copyCode: 'Copy code', copied: 'Copied', leaveRoom: 'Leave room',
         waitingFriend: 'Waiting for a friend to join…', rivalJoined: 'Rival joined',
         hostTag: 'Host', youTag: 'You', readyChip: 'Ready', waitingChip: 'Not ready',
-        ready: 'Ready up', unready: 'Stand down', startMatch: 'Start match',
+        readyButton: 'Ready up', unready: 'Stand down', startMatch: 'Start match',
         needReady: 'At least 2 players must join, and all online players must be ready.', matchIn: 'Starts in',
         roomSize: 'Players', roomHint: '2–5 players. The host starts when everyone is ready.',
         reactionRounds: 'Reaction rounds', roundsHint: 'The host chooses 5–20 rounds before starting.',
@@ -71,6 +99,30 @@
         reactionRule: 'Lower average reaction time wins. Equal times is a draw.',
       },
       zh: {
+        brandTagline: '精准瞄准训练', settingsTab: '设置', settingsHint: '调整操作手感和训练场的呈现方式。',
+        trainingLibrary: '训练项目', localTraining: '你的专属训练场', localTrainingHint: '按自己的节奏训练。单人训练成绩保存在当前浏览器。',
+        gridshot: '三点速射', reactionTask: '反应射击', trackingTask: '动态跟枪',
+        clickCategory: '精准度与速度', reactionCategory: '反应与时机', trackCategory: '控制与稳定',
+        clickHint3d: '移动鼠标转动视角，让球靶进入中央准星，按左键射击。在三个目标之间保持稳定的命中节奏。',
+        reactionHint3d: '等待球靶出现，再转动视角并射击。成功命中后记录本轮反应时间。',
+        trackHint3d: '移动鼠标转动视角，让中央准星持续跟随移动球靶，尽可能延长瞄准目标的时间。',
+        mouseLookHint: '鼠标转动视角 · 左键射击 · Esc 暂停',
+        focusTitle: '练习稳定控制', improveTitle: '看见训练进步', improveHint: '先保证精准，再逐渐提速。在记录页对比每次完成的训练。',
+        sensitivity: '鼠标灵敏度', fieldOfView: '视野角度', settingsControls: '操作设置', settingsPresentation: '画面与声音',
+        sensitivityHint: '灵敏度单位为每像素鼠标移动对应的视角度数。这些设置适用于全部训练项目，并保存在当前浏览器。',
+        sceneLabel: '三维瞄准训练场', pause: '暂停并释放鼠标', paused: '训练已暂停',
+        pauseHint: '训练计时已暂停。点击继续后将重新锁定鼠标，返回训练场。',
+        inputReleased: '鼠标已释放', onlineClockContinues: '当前为联机对战。释放鼠标期间，对局计时仍会继续。',
+        resumeTraining: '继续训练', backToTasks: '返回训练项目', escapePause: 'ESC  ·  释放鼠标 / 暂停', waitForTarget: '等待球靶出现…',
+        webglUnavailable: '浏览器未能启动 WebGL。请启用硬件图形加速，或换用支持的浏览器后重试。',
+        webglLost: '图形上下文已丢失。请重新初始化画面，恢复训练场。',
+        pointerLockUnavailable: '当前环境不支持鼠标锁定。请在支持 Pointer Lock 的浏览器中打开插件。',
+        pointerLockFailed: '未能锁定鼠标。请再次点击继续或开始重试。', retryGraphics: '重新初始化画面',
+        sessionComplete: '本次训练完成', sessionTrend: '本局表现', recentRuns: '最近训练',
+        score: '成绩', duration: '训练时长', targetsHit: '命中 / 射击', averageHitTime: '平均命中耗时', onTargetTime: '瞄准目标时间', fastestReaction: '最快单次反应',
+        savedLocally: '已保存在当前浏览器', historyHint: '完成一次训练，即可开始积累自己的成绩记录。',
+        saveFailed: '本局未能保存，请检查浏览器存储空间或权限。', ghostSaveFailed: '新幽灵未能保存。',
+        completedRuns: '次已完成训练', trainingTask: '训练项目', date: '时间', legacyRecords: '原二维训练成绩',
         updateTitle: '插件更新', currentVersion: '当前版本', latestVersion: 'GitHub 最新版本',
         checkUpdates: '检查更新', checkingUpdates: '正在检查…', updateAvailable: '发现新版本。',
         updateCurrent: '已是最新版本。', updateAhead: '当前本地版本比 GitHub 更新。',
@@ -81,12 +133,17 @@
         updateLocalHint: '如果通过本地 Git 克隆安装，在克隆目录执行 git pull 后刷新即可。',
         title: '瞄准训练', open: '打开瞄准训练', close: '关闭',
         center: '窗口回到中间', drag: '拖动移动窗口',
+        feelSound: '音效', feelCrosshair: '准星', feelGun: '枪械视角', feelEffects: '命中特效',
+        feelCross: '十字', feelDot: '圆点', feelRing: '圆环',
+        rangeTitle: '精准训练场', rangeSubtitle: '找到节奏，让每一次命中都更稳。',
+        shortcuts: '空格 · 开始    Esc · 暂停 / 释放鼠标', resize: '调整窗口大小', expand: '放大 / 还原',
+        resizeHint: '拖动右下角缩放；聚焦后可用方向键调整。',
         trainTab: '训练', recordTab: '记录',
         click: '点击', reaction: '反应', track: '跟枪',
         start: '开始训练', again: '再来一局',
         clickHint: '打中出现的靶子，点空白处会拉低命中率。',
         reactionHint: '等靶子出现，尽快点中它。',
-        trackHint: '把鼠标一直压在移动的靶子上，直到时间结束。',
+        trackHint: '让中央准星持续跟随移动球靶，直到时间结束。',
         hits: '命中', accuracy: '命中率', timeLeft: '剩余', round: '回合',
         clickBest: '最高命中', reactionBest: '最快平均反应', trackBest: '最佳跟枪',
         noRecord: '还没有记录', done: '训练结束', ready: '准备', now: '点它！',
@@ -105,7 +162,7 @@
         copyCode: '复制房间码', copied: '已复制', leaveRoom: '离开房间',
         waitingFriend: '等待好友加入…', rivalJoined: '对手已加入',
         hostTag: '房主', youTag: '你', readyChip: '已准备', waitingChip: '未准备',
-        ready: '准备', unready: '取消准备', startMatch: '开始对战',
+        readyButton: '准备', unready: '取消准备', startMatch: '开始对战',
         needReady: '至少 2 人加入，且所有在线玩家准备好才能开始。', matchIn: '倒计时',
         roomSize: '房间人数', roomHint: '2～5 人，所有人准备后由房主开局。',
         reactionRounds: '反应赛轮数', roundsHint: '房主可在开局前选择 5～20 轮。',
@@ -132,92 +189,73 @@
     };
 
     const CSS = `
-      .at-root { position:fixed; right:70px; top:74px; z-index:46; pointer-events:none; font-family:inherit; }
+      .at-root { position:fixed; right:70px; top:74px; z-index:46; pointer-events:none; }
       .at-root * { box-sizing:border-box; }
-      .at-launch { pointer-events:auto; display:grid; place-items:center; width:46px; height:46px; margin-left:auto; border:1px solid var(--dsw-alias-border-l2); border-radius:8px; background:var(--dsw-alias-bg-overlay); color:var(--dsw-alias-label-primary); box-shadow:0 5px 16px rgba(0,0,0,.18); cursor:pointer; font-size:23px; }
-      .at-launch:hover, .at-launch:focus-visible { outline:2px solid #00e5c0; outline-offset:2px; }
-      .at-win { pointer-events:auto; position:fixed; z-index:61; display:flex; flex-direction:column; width:min(${WIDTH}px, calc(100vw - 24px)); max-height:calc(100dvh - 24px); overflow:auto; border:1px solid #232e3a; border-radius:10px; background:#0b0e13; color:#e8eff5; box-shadow:0 26px 64px rgba(0,0,0,.55), 0 0 0 1px rgba(0,229,192,.06); }
-      .at-bar { position:sticky; top:0; z-index:2; display:flex; align-items:center; gap:9px; padding:10px 12px; border-bottom:1px solid #1d2733; background:#101720; cursor:grab; user-select:none; touch-action:none; }
+      .at-launch { pointer-events:auto; display:grid; place-items:center; width:46px; height:46px; margin-left:auto; border:1px solid; border-radius:8px; box-shadow:0 5px 16px #0003; cursor:pointer; font-size:23px; }
+      .at-launch svg { width:26px; height:26px; }
+      .at-win { pointer-events:auto; position:fixed; z-index:61; display:flex; flex-direction:column; max-height:calc(100dvh - 16px); outline:none; }
+      .at-bar { display:flex; align-items:center; flex-shrink:0; cursor:grab; user-select:none; touch-action:none; }
       .at-bar.at-drag { cursor:grabbing; }
-      .at-dot { width:7px; height:7px; border-radius:50%; background:#00e5c0; box-shadow:0 0 10px rgba(0,229,192,.9); }
-      .at-name { font-size:11px; font-weight:800; letter-spacing:.18em; text-transform:uppercase; color:#9fb2c2; }
       .at-spacer { flex:1; }
-      .at-ico { width:26px; height:26px; display:grid; place-items:center; border:1px solid #243040; border-radius:4px; background:transparent; color:#8ea0b0; font:inherit; font-size:13px; cursor:pointer; }
-      .at-ico:hover { border-color:#00e5c0; color:#00e5c0; }
-      .at-tabs { display:flex; gap:4px; padding:0 12px 10px; border-bottom:1px solid #1d2733; background:#101720; }
-      .at-tab { flex:1; padding:6px 4px; border:0; border-radius:3px; background:transparent; color:#7f8f9e; font:inherit; font-size:11px; letter-spacing:.12em; text-transform:uppercase; cursor:pointer; }
-      .at-tab[aria-selected="true"] { background:#1a2733; color:#eef6fb; font-weight:700; }
-      .at-modes { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; padding:12px 14px 0; }
-      .at-modes.at-two { grid-template-columns:repeat(2, 1fr); }
-      .at-mode { padding:9px 4px; border:1px solid #1e2833; border-radius:5px; background:#0d131a; color:#8698a7; font:inherit; font-size:11px; font-weight:650; letter-spacing:.12em; text-transform:uppercase; cursor:pointer; }
-      .at-mode:hover { border-color:#38495a; color:#cfe0ec; }
-      .at-mode[aria-pressed="true"] { border-color:#00e5c0; color:#eafffa; background:#0e1c1d; box-shadow:inset 0 0 0 1px rgba(0,229,192,.28); }
-      .at-arena { position:relative; height:clamp(250px, 44vh, 400px); margin:12px 14px; border:1px solid #1a222c; border-radius:6px; overflow:hidden; background:radial-gradient(circle at 50% 42%, #101923, #05080c 78%); cursor:crosshair; touch-action:none; }
-      .at-grid { position:absolute; inset:0; pointer-events:none; background-image:linear-gradient(rgba(140,190,220,.055) 1px, transparent 1px), linear-gradient(90deg, rgba(140,190,220,.055) 1px, transparent 1px); background-size:44px 44px; }
-      .at-target { position:absolute; width:46px; height:46px; margin:0; padding:0; transform:translate(-50%, -50%); border:0; border-radius:50%; background:radial-gradient(circle at 34% 28%, #ffd9c6, #ff6a3d 34%, #d32a09 68%, #7d1403 100%); box-shadow:0 0 24px rgba(255,90,50,.5), 0 0 0 3px rgba(255,120,80,.12); cursor:crosshair; }
-      .at-target::after { content:''; position:absolute; left:14px; top:11px; width:12px; height:9px; border-radius:50%; background:rgba(255,255,255,.55); filter:blur(1px); }
-      .at-track-target { width:52px; height:52px; background:radial-gradient(circle at 34% 28%, #d7fbff, #38d8ea 36%, #0f95b4 68%, #075068 100%); box-shadow:0 0 26px rgba(60,220,240,.5), 0 0 0 3px rgba(90,230,245,.14); }
-      .at-count { position:absolute; inset:0; display:grid; place-items:center; background:rgba(4,8,12,.76); color:#fff; font-size:84px; font-weight:850; font-variant-numeric:tabular-nums; letter-spacing:.02em; animation:at-pop .9s ease-out; }
-      @keyframes at-pop { 0% { transform:scale(.7); opacity:.15; } 35% { transform:scale(1.02); opacity:1; } 100% { transform:scale(1.08); opacity:.92; } }
-      .at-flag { position:absolute; inset:0; display:grid; place-items:center; padding:18px; text-align:center; background:rgba(5,10,15,.7); color:#f2f8fc; font-size:16px; font-weight:700; letter-spacing:.02em; }
-      .at-hint { position:absolute; left:16px; right:16px; bottom:13px; margin:0; color:#8496a6; font-size:11px; line-height:1.55; text-align:center; }
-      .at-stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; padding:0 14px; }
-      .at-stat { padding:8px 10px; border:1px solid #1a222c; border-radius:5px; background:#0e141c; }
-      .at-stat-label { display:block; color:#7a8b9a; font-size:9px; letter-spacing:.14em; text-transform:uppercase; }
-      .at-stat-value { display:block; margin-top:2px; color:#f2f8fc; font-size:20px; font-weight:800; font-variant-numeric:tabular-nums; }
-      .at-status { margin:10px 14px 0; min-height:30px; color:#8b9dac; font-size:11px; line-height:1.5; }
-      .at-status.at-hot { color:#ffd08a; }
-      .at-actions { display:flex; gap:8px; padding:8px 14px 14px; }
-      .at-primary { flex:1; min-height:44px; border:0; border-radius:5px; background:#00e5c0; color:#04231f; font:inherit; font-size:12px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; cursor:pointer; }
-      .at-primary:hover { background:#1cf3d2; }
-      .at-primary:focus-visible, .at-mode:focus-visible, .at-tab:focus-visible, .at-ico:focus-visible { outline:2px solid #00e5c0; outline-offset:2px; }
-      .at-records { padding:6px 14px 16px; }
-      .at-record { display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:50px; border-bottom:1px solid #1a222c; font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:#7f8f9e; }
-      .at-record:last-child { border-bottom:0; }
-      .at-record strong { color:#f2f8fc; font-size:18px; letter-spacing:0; text-transform:none; font-variant-numeric:tabular-nums; }
-      .at-record strong.at-empty { color:#5d6d7b; font-size:12px; font-weight:500; }
-      .at-vs { display:flex; flex-direction:column; gap:10px; padding:12px 14px 16px; }
-      .at-field { display:flex; flex-direction:column; gap:5px; }
-      .at-label { color:#7a8b9a; font-size:9px; letter-spacing:.14em; text-transform:uppercase; }
-      .at-input { min-height:36px; padding:0 10px; border:1px solid #223141; border-radius:5px; background:#0d131a; color:#eef6fb; font:inherit; font-size:12px; letter-spacing:.12em; text-transform:uppercase; }
-      .at-input:focus-visible { outline:2px solid #00e5c0; outline-offset:1px; }
-      .at-row { display:flex; gap:8px; }
+      .at-ico { display:grid; place-items:center; padding:0; font-size:15px; cursor:pointer; flex-shrink:0; }
+      .at-tab { border:0; font:inherit; cursor:pointer; }
+      .at-mode { font:inherit; cursor:pointer; }
+      .at-content { overscroll-behavior:contain; scrollbar-width:thin; }
+      .at-footer { flex-shrink:0; display:flex; align-items:center; justify-content:space-between; font-size:10px; }
+      .at-resize { width:30px; height:25px; padding:0; border:0; background:transparent; cursor:nwse-resize; touch-action:none; }
+      .at-vs { display:flex; flex-direction:column; }
+      .at-field { display:flex; flex-direction:column; gap:6px; }
+      .at-label { font-size:10px; letter-spacing:.1em; }
+      .at-input { width:100%; font:inherit; font-size:12px; }
+      .at-row { display:flex; gap:10px; }
       .at-row > * { flex:1; }
-      .at-codebox { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid #1e3440; border-radius:6px; background:linear-gradient(180deg,#0c1a1f,#0a1218); }
-      .at-code { color:#eafffa; font-size:25px; font-weight:850; letter-spacing:.24em; font-variant-numeric:tabular-nums; }
-      .at-ghost { min-height:32px; padding:0 10px; border:1px solid #223141; border-radius:4px; background:transparent; color:#9fb2c2; font:inherit; font-size:11px; letter-spacing:.1em; text-transform:uppercase; cursor:pointer; }
-      .at-ghost:hover, .at-ghost:focus-visible { border-color:#00e5c0; color:#00e5c0; outline:none; }
-      .at-players { display:flex; flex-direction:column; border:1px solid #1a222c; border-radius:6px; overflow:hidden; }
-      .at-player { display:flex; align-items:center; gap:8px; padding:9px 11px; background:#0e141c; font-size:12px; }
-      .at-player + .at-player { border-top:1px solid #1a222c; }
-      .at-player-name { flex:1; min-width:0; overflow-wrap:anywhere; color:#e8eff5; font-weight:650; }
-      .at-player-value { color:#eafffa; font-variant-numeric:tabular-nums; white-space:nowrap; }
-      .at-rank { width:24px; color:#00e5c0; font-weight:800; text-align:center; }
-      .at-primary:disabled, .at-mode:disabled { opacity:.45; cursor:default; }
-      .at-input:disabled { opacity:.7; cursor:default; }
-      .at-chip { padding:2px 7px; border:1px solid #26364a; border-radius:3px; color:#8ea0b0; font-size:9px; letter-spacing:.12em; text-transform:uppercase; }
-      .at-chip.at-on { border-color:#0f7f6c; background:#07231f; color:#7ff0da; }
-      .at-duel-line { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px; border:1px solid #1a222c; border-radius:6px; background:#0c1218; color:#7f8f9e; font-size:11px; letter-spacing:.1em; text-transform:uppercase; }
-      .at-duel-line strong { color:#eafffa; font-size:15px; font-variant-numeric:tabular-nums; letter-spacing:0; text-transform:none; }
+      .at-codebox { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px; border:1px solid; }
+      .at-code { font-size:26px; font-weight:700; letter-spacing:.2em; font-variant-numeric:tabular-nums; }
+      .at-ghost { cursor:pointer; }
+      .at-players { display:flex; flex-direction:column; border:1px solid #3b515e; border-radius:6px; overflow:hidden; }
+      .at-player { display:flex; align-items:center; gap:8px; padding:12px; font-size:12px; }
+      .at-player + .at-player { border-top:1px solid #3b515e; }
+      .at-player-name { flex:1; min-width:0; overflow-wrap:anywhere; font-weight:600; }
+      .at-player-value { font-variant-numeric:tabular-nums; white-space:nowrap; }
+      .at-rank { width:24px; color:#48d2d7; font-weight:700; text-align:center; }
+      .at-chip { padding:3px 7px; border:1px solid; border-radius:3px; font-size:9px; letter-spacing:.08em; }
+      .at-chip.at-on { background:#173b36; }
+      .at-duel-line { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid; font-size:11px; }
+      .at-duel-line strong { font-size:15px; font-variant-numeric:tabular-nums; }
       .at-count-big { display:grid; place-items:center; gap:6px; min-height:200px; }
-      .at-count-num { color:#eafffa; font-size:74px; font-weight:850; font-variant-numeric:tabular-nums; }
-      .at-banner { display:grid; place-items:center; gap:3px; padding:16px; border:1px solid #1e3440; border-radius:6px; background:linear-gradient(180deg,#0c1a1f,#0a1218); color:#eafffa; text-align:center; }
-      .at-banner-big { font-size:23px; font-weight:850; letter-spacing:.06em; text-transform:uppercase; }
-      .at-note { margin:0; color:#8496a6; font-size:11px; line-height:1.5; }
-      @media (max-width:600px) { .at-root { right:62px; top:62px; } .at-win { width:calc(100vw - 16px); } }
-      @media (prefers-reduced-motion:reduce) { .at-count { animation:none; } }
+      .at-count-num { color:#c4f4f3; font-size:74px; font-weight:700; font-variant-numeric:tabular-nums; }
+      .at-banner { display:grid; place-items:center; gap:6px; padding:20px; border:1px solid; text-align:center; }
+      .at-banner-big { font-size:26px; font-weight:700; }
+      .at-note { margin:0; font-size:11px; line-height:1.7; }
+      @media (max-width:600px) { .at-root { right:62px; top:62px; } }
     `;
 
     function readRecords() {
       const empty = { click: null, reaction: null, track: null };
+      let raw = {};
       try {
-        const raw = JSON.parse(window.localStorage.getItem(REC_KEY) || '{}');
-        for (const key of Object.keys(empty)) {
-          const value = raw[key];
-          empty[key] = typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
-        }
-      } catch (_) { /* Corrupt storage falls back to an empty ledger. */ }
+        raw = JSON.parse(window.localStorage.getItem(REC_KEY) || '{}');
+      } catch (_) { /* Recover available bests from valid history. */ }
+      const history = readRunHistory();
+      for (const key of Object.keys(empty)) empty[key] = bestRunScore(key, raw, history);
+      const stored = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+      if (Object.keys(empty).some((key) => empty[key] !== null && empty[key] !== stored[key])) {
+        try { window.localStorage.setItem(REC_KEY, JSON.stringify(empty)); } catch (_) { /* Recovered bests remain available this session. */ }
+      }
       return empty;
+    }
+
+    function fitSize(width, height) {
+      const maxW = Math.max(240, window.innerWidth - 16);
+      const maxH = Math.max(280, window.innerHeight - 16);
+      return { width: Math.min(maxW, Math.max(Math.min(460, maxW), width)), height: Math.min(maxH, Math.max(Math.min(520, maxH), height)) };
+    }
+    function loadSize() {
+      try {
+        const raw = JSON.parse(window.localStorage.getItem(SIZE_KEY) || 'null');
+        if (raw && Number.isFinite(raw.width) && Number.isFinite(raw.height)) return raw.expanded ? fitSize(window.innerWidth - 16, window.innerHeight - 16) : fitSize(raw.width, raw.height);
+      } catch (_) { /* Use defaults. */ }
+      return fitSize(window.innerWidth - 16, window.innerHeight - 16);
     }
 
     function loadPosition() {
@@ -229,8 +267,12 @@
     }
 
     function defaultPosition() {
-      const width = Math.min(WIDTH, window.innerWidth - 24);
-      return { left: Math.max(8, Math.round((window.innerWidth - width) / 2)), top: 76 };
+      const size = loadSize();
+      return { left: Math.max(8, Math.round((window.innerWidth - size.width) / 2)), top: Math.max(8, Math.round((window.innerHeight - size.height) / 2)) };
+    }
+
+    function isExpanded(size) {
+      return size.width >= window.innerWidth - 18 && size.height >= window.innerHeight - 18;
     }
 
     function clampToViewport(left, top, width, height) {
@@ -242,285 +284,9 @@
       };
     }
 
-    function spot() {
-      return { x: 16 + Math.random() * 68, y: 20 + Math.random() * 60 };
-    }
-
-    function useCountdown(phase, setPhase, finish, ticks) {
-      const [tick, setTick] = React.useState(ticks);
-      React.useEffect(() => {
-        if (phase !== 'countdown') return undefined;
-        const id = window.setTimeout(() => {
-          if (tick > 1) setTick(tick - 1);
-          else finish();
-        }, COUNT_STEP);
-        return () => window.clearTimeout(id);
-      }, [phase, tick]);
-      return [tick, setTick];
-    }
-
-    function ClickGame({ t, onFinish }) {
-      const [phase, setPhase] = React.useState('idle');
-      const [left, setLeft] = React.useState(CLICK_TIME);
-      const [hits, setHits] = React.useState(0);
-      const [shots, setShots] = React.useState(0);
-      const [pos, setPos] = React.useState(spot);
-      const [record, setRecord] = React.useState(false);
-      const [ghostEnabled, setGhostEnabled] = React.useState(() => {
-        try { return window.localStorage.getItem(GHOST_ENABLED_KEY) !== 'false'; } catch { return true; }
-      });
-      const [ghostRun, setGhostRun] = React.useState(() => readGhost(window.localStorage, CLICK_TIME * 1000));
-      const [ghostElapsed, setGhostElapsed] = React.useState(0);
-      const [ghostNotice, setGhostNotice] = React.useState('');
-      const clickRun = React.useRef({ start: null, hits: [] });
-      const [tick, setTick] = useCountdown(phase, setPhase, () => setPhase('running'), 2);
-
-      React.useEffect(() => {
-        if (phase !== 'running') return undefined;
-        const started = performance.now();
-        clickRun.current.start = started;
-        const id = window.setInterval(() => {
-          const elapsed = performance.now() - started;
-          setGhostElapsed(Math.min(CLICK_TIME * 1000, elapsed));
-          const remain = CLICK_TIME - elapsed / 1000;
-          if (remain <= 0) {
-            window.clearInterval(id);
-            setLeft(0);
-            setPhase('done');
-          } else setLeft(Math.ceil(remain));
-        }, 120);
-        return () => window.clearInterval(id);
-      }, [phase]);
-
-      React.useEffect(() => {
-        if (phase !== 'done') return;
-        setRecord(onFinish('click', hits) === true);
-        const previous = readGhost(window.localStorage, CLICK_TIME * 1000);
-        if (clickRun.current.hits.length > (previous?.hits.length || 0)) {
-          const saved = saveGhost(window.localStorage, clickRun.current.hits, CLICK_TIME * 1000);
-          setGhostNotice(saved ? 'ghostSaved' : 'ghostStorage');
-        }
-      }, [phase]);
-
-      function start() {
-        clickRun.current = { start: null, hits: [] };
-        setGhostRun(readGhost(window.localStorage, CLICK_TIME * 1000));
-        setGhostElapsed(0);
-        setGhostNotice('');
-        setHits(0);
-        setShots(0);
-        setLeft(CLICK_TIME);
-        setPos(spot());
-        setTick(2);
-        setRecord(false);
-        setPhase('countdown');
-      }
-
-      function hit(event) {
-        event.stopPropagation();
-        if (phase !== 'running' || clickRun.current.start === null) return;
-        const elapsed = performance.now() - clickRun.current.start;
-        if (elapsed < 0 || elapsed >= CLICK_TIME * 1000) return;
-        clickRun.current.hits.push(elapsed);
-        setGhostElapsed(elapsed);
-        setHits((n) => n + 1);
-        setShots((n) => n + 1);
-        setPos(spot());
-      }
-
-      const accuracy = shots > 0 ? Math.round((hits / shots) * 100) : 0;
-      const ghostHits = ghostScoreAt(ghostRun, ghostElapsed);
-      const delta = hits - ghostHits;
-      const ghostScale = Math.max(1, hits, ghostRun?.hits.length || 0);
-
-      return h('div', null,
-        h('div', { className: 'at-ghost-controls', style: { padding: '10px 14px' } },
-          h('label', null,
-            h('input', { type: 'checkbox', checked: ghostEnabled, disabled: phase === 'running' || phase === 'countdown',
-              onChange: (event) => {
-                const enabled = event.target.checked;
-                setGhostEnabled(enabled);
-                try { window.localStorage.setItem(GHOST_ENABLED_KEY, String(enabled)); } catch { /* session preference */ }
-              } }), ' ', t('ghost')),
-          h('div', { className: 'at-note' }, ghostEnabled ? t(ghostRun ? 'ghostHint' : 'ghostEmpty') : t('ghostHint')),
-          ghostEnabled && ghostRun && h('div', { className: 'at-ghost-race' },
-            h('div', null, `${t('you')}: ${hits} · ${t('ghost')}: ${ghostHits} · ${t('ghostBest')}: ${ghostRun.hits.length}`),
-            h('label', { style: { display: 'block' } }, t('you'), ' ', h('progress', { value: hits, max: ghostScale, 'aria-label': t('you') })),
-            h('label', { style: { display: 'block' } }, t('ghost'), ' ', h('progress', { value: ghostHits, max: ghostScale, 'aria-label': t('ghost') })),
-            h('div', { className: 'at-note' }, delta === 0 ? t('ghostTied') : `${t(delta > 0 ? 'ghostAhead' : 'ghostBehind')} ${Math.abs(delta)}`)),
-          ghostNotice && h('div', { className: 'at-note', role: 'status' }, t(ghostNotice)),
-        ),
-        h('div', { className: 'at-arena', onPointerDown: () => { if (phase === 'running') setShots((n) => n + 1); } },
-          h('div', { className: 'at-grid' }),
-          phase === 'running' && h('button', { type: 'button', className: 'at-target', style: { left: pos.x + '%', top: pos.y + '%' }, onPointerDown: hit, 'aria-label': t('hits') }),
-          phase === 'countdown' && h('div', { key: tick, className: 'at-count' }, tick),
-          phase === 'idle' && h('p', { className: 'at-hint' }, t('clickHint')),
-          phase === 'done' && h('div', { className: 'at-flag' }, `${t('done')} · ${hits} ${t('hits')} · ${accuracy}%`),
-        ),
-        h('div', { className: 'at-stats' },
-          h('div', { className: 'at-stat' }, h('span', { className: 'at-stat-label' }, t('hits')), h('span', { className: 'at-stat-value' }, hits)),
-          h('div', { className: 'at-stat' }, h('span', { className: 'at-stat-label' }, t('accuracy')), h('span', { className: 'at-stat-value' }, accuracy + '%')),
-          h('div', { className: 'at-stat' }, h('span', { className: 'at-stat-label' }, t('timeLeft')), h('span', { className: 'at-stat-value' }, left + t('sec'))),
-        ),
-        h('p', { className: 'at-status', role: 'status', 'aria-live': 'polite' }, phase === 'countdown' ? t('ready') : phase === 'done' ? (record ? t('newRecord') : t('timeUp')) : t('clickHint')),
-        h('div', { className: 'at-actions' }, h('button', { type: 'button', className: 'at-primary', onClick: start }, t(phase === 'idle' ? 'start' : 'again'))),
-      );
-    }
-
-    function ReactionGame({ t, onFinish }) {
-      const [phase, setPhase] = React.useState('idle');
-      const [round, setRound] = React.useState(0);
-      const [times, setTimes] = React.useState([]);
-      const [pos, setPos] = React.useState(spot);
-      const [early, setEarly] = React.useState(false);
-      const [record, setRecord] = React.useState(false);
-      const startAt = React.useRef(0);
-      const [tick, setTick] = useCountdown(phase, setPhase, () => setPhase('wait'), 2);
-
-      React.useEffect(() => {
-        if (phase !== 'wait') return undefined;
-        const delay = 800 + Math.random() * 1500;
-        const id = window.setTimeout(() => {
-          startAt.current = performance.now();
-          setPos(spot());
-          setEarly(false);
-          setPhase('ready');
-        }, delay);
-        return () => window.clearTimeout(id);
-      }, [phase, round]);
-
-      const average = times.length > 0 ? Math.round(times.reduce((sum, value) => sum + value, 0) / times.length) : 0;
-
-      React.useEffect(() => {
-        if (phase === 'done' && average > 0) setRecord(onFinish('reaction', average) === true);
-      }, [phase]);
-
-      function start() {
-        setTimes([]);
-        setRound(1);
-        setEarly(false);
-        setRecord(false);
-        setTick(2);
-        setPhase('countdown');
-      }
-
-      function hit(event) {
-        event.stopPropagation();
-        if (phase !== 'ready') return;
-        const value = performance.now() - startAt.current;
-        const next = times.concat(value);
-        setTimes(next);
-        if (next.length >= REACTION_ROUNDS) setPhase('done');
-        else {
-          setRound((n) => n + 1);
-          setPhase('wait');
-        }
-      }
-
-      return h('div', null,
-        h('div', { className: 'at-arena', onPointerDown: () => { if (phase === 'wait') setEarly(true); } },
-          h('div', { className: 'at-grid' }),
-          phase === 'ready' && h('button', { type: 'button', className: 'at-target', style: { left: pos.x + '%', top: pos.y + '%' }, onPointerDown: hit, 'aria-label': t('now') }),
-          phase === 'countdown' && h('div', { key: tick, className: 'at-count' }, tick),
-          phase === 'idle' && h('p', { className: 'at-hint' }, t('reactionHint')),
-          phase === 'wait' && h('p', { className: 'at-hint' }, early ? t('early') : t('ready')),
-          phase === 'done' && h('div', { className: 'at-flag' }, `${t('done')} · ${average} ${t('ms')}`),
-        ),
-        h('div', { className: 'at-stats' },
-          h('div', { className: 'at-stat' }, h('span', { className: 'at-stat-label' }, t('round')), h('span', { className: 'at-stat-value' }, `${Math.min(round, REACTION_ROUNDS)}/${REACTION_ROUNDS}`)),
-          h('div', { className: 'at-stat' }, h('span', { className: 'at-stat-label' }, t('reaction')), h('span', { className: 'at-stat-value' }, times.length > 0 ? Math.round(times[times.length - 1]) + t('ms') : '—')),
-          h('div', { className: 'at-stat' }, h('span', { className: 'at-stat-label' }, t('accuracy')), h('span', { className: 'at-stat-value' }, average > 0 ? average + t('ms') : '—')),
-        ),
-        h('p', { className: 'at-status', role: 'status', 'aria-live': 'polite' }, phase === 'countdown' ? t('ready') : phase === 'done' ? (record ? t('newRecord') : t('reactionHint')) : t('reactionHint')),
-        h('div', { className: 'at-actions' }, h('button', { type: 'button', className: 'at-primary', onClick: start }, t(phase === 'idle' ? 'start' : 'again'))),
-      );
-    }
-
-    function TrackGame({ t, onFinish }) {
-      const [phase, setPhase] = React.useState('idle');
-      const [view, setView] = React.useState({ x: 50, y: 45, left: TRACK_TIME });
-      const [accuracy, setAccuracy] = React.useState(0);
-      const [record, setRecord] = React.useState(false);
-      const arena = React.useRef(null);
-      const [tick, setTick] = useCountdown(phase, setPhase, () => setPhase('running'), 2);
-
-      React.useEffect(() => {
-        if (phase !== 'running') return undefined;
-        const node = arena.current;
-        if (!node) return undefined;
-        const rect = node.getBoundingClientRect();
-        const radius = 28;
-        let px = null;
-        let py = null;
-        let x = 50;
-        let y = 45;
-        let vx = 0.055;
-        let vy = -0.041;
-        let onTarget = 0;
-        let total = 0;
-        let last = performance.now();
-        let frame = 0;
-
-        const move = (event) => { px = event.clientX; py = event.clientY; };
-        node.addEventListener('pointermove', move);
-
-        const step = (now) => {
-          const dt = Math.min(now - last, 60);
-          last = now;
-          total += dt;
-          x += vx * dt;
-          y += vy * dt;
-          if (x <= 10 || x >= 90) { vx = -vx; x = Math.min(90, Math.max(10, x)); }
-          if (y <= 14 || y >= 86) { vy = -vy; y = Math.min(86, Math.max(14, y)); }
-          if (px !== null) {
-            const cx = rect.left + (rect.width * x) / 100;
-            const cy = rect.top + (rect.height * y) / 100;
-            const dx = px - cx;
-            const dy = py - cy;
-            if (dx * dx + dy * dy <= radius * radius) onTarget += dt;
-          }
-          if (total >= TRACK_TIME * 1000) {
-            setView({ x, y, left: 0 });
-            setAccuracy(Math.round((onTarget / total) * 100));
-            setPhase('done');
-            return;
-          }
-          setView({ x, y, left: Math.ceil((TRACK_TIME * 1000 - total) / 1000) });
-          frame = window.requestAnimationFrame(step);
-        };
-        frame = window.requestAnimationFrame(step);
-
-        return () => {
-          window.cancelAnimationFrame(frame);
-          node.removeEventListener('pointermove', move);
-        };
-      }, [phase]);
-
-      React.useEffect(() => {
-        if (phase === 'done' && accuracy > 0) setRecord(onFinish('track', accuracy) === true);
-      }, [phase]);
-
-      return h('div', null,
-        h('div', { className: 'at-arena', ref: arena },
-          h('div', { className: 'at-grid' }),
-          h('div', { className: 'at-target at-track-target', style: { left: view.x + '%', top: view.y + '%' }, 'aria-hidden': true }),
-          phase === 'countdown' && h('div', { key: tick, className: 'at-count' }, tick),
-          phase === 'idle' && h('p', { className: 'at-hint' }, t('trackHint')),
-          phase === 'done' && h('div', { className: 'at-flag' }, `${t('done')} · ${accuracy}%`),
-        ),
-        h('div', { className: 'at-stats' },
-          h('div', { className: 'at-stat' }, h('span', { className: 'at-stat-label' }, t('accuracy')), h('span', { className: 'at-stat-value' }, accuracy + '%')),
-          h('div', { className: 'at-stat' }, h('span', { className: 'at-stat-label' }, t('timeLeft')), h('span', { className: 'at-stat-value' }, view.left + t('sec'))),
-          h('div', { className: 'at-stat' }, h('span', { className: 'at-stat-label' }, t('track')), h('span', { className: 'at-stat-value' }, phase === 'running' ? 'LIVE' : '—')),
-        ),
-        h('p', { className: 'at-status', role: 'status', 'aria-live': 'polite' }, phase === 'countdown' ? t('ready') : phase === 'done' ? (record ? t('newRecord') : t('trackHint')) : t('trackHint')),
-        h('div', { className: 'at-actions' },
-          h('button', { type: 'button', className: 'at-primary', onClick: () => { setAccuracy(0); setRecord(false); setTick(2); setPhase('countdown'); } }, t(phase === 'idle' ? 'start' : 'again')),
-        ),
-      );
-    }
-
-    // ------------------------------------------------------------- multiplayer
+    function ClickGame(props) { return h(RangeGame, { ...props, mode: 'click' }); }
+    function ReactionGame(props) { return h(RangeGame, { ...props, mode: 'reaction' }); }
+    function TrackGame(props) { return h(RangeGame, { ...props, mode: 'track' }); }
 
     function tabPlayerId() {
       try {
@@ -636,163 +402,21 @@
       return { stage, error, status, snap, name, setName, connect, leave, act };
     }
 
-    function statCell(label, value) {
-      return h('div', { className: 'at-stat' },
-        h('span', { className: 'at-stat-label' }, label),
-        h('span', { className: 'at-stat-value' }, value),
-      );
+    function DuelGame({ vs, ...props }) {
+      const report = (data) => ({
+        score: data.score, hits: data.hits,
+        misses: Math.max(0, data.shots - data.hits), acc: data.accuracy,
+      });
+      return h(RangeGame, {
+        ...props, multiplayer: true,
+        onLeave: vs.leave,
+        statusPanel: h(MatchProgress, { snap: vs.snap, t: props.t }),
+        onFinish: (_mode, _score, data) => vs.act((room) => room.finish(report(data))),
+        onProgress: (data) => vs.act((room) => room.reportProgress(report(data))),
+      });
     }
-
-    function DuelClick({ vs, t, seed, durationMs, startLocal }) {
-      const targets = React.useMemo(() => buildTargets(seed, 320), [seed]);
-      const stats = React.useRef({ hits: 0, misses: 0, index: 0 });
-      const finishedRef = React.useRef(false);
-      const reported = React.useRef(0);
-      const [view, setView] = React.useState(() => ({ ...stats.current, left: Math.max(0, Math.ceil((startLocal + durationMs - Date.now()) / 1000)) }));
-      const [done, setDone] = React.useState(false);
-
-      React.useEffect(() => {
-        const id = window.setInterval(() => {
-          const remain = startLocal + durationMs - Date.now();
-          setView((current) => ({ ...current, left: Math.max(0, Math.ceil(remain / 1000)) }));
-          if (remain <= 0 && !finishedRef.current) {
-            finishedRef.current = true;
-            window.clearInterval(id);
-            const { hits, misses } = stats.current;
-            const shots = hits + misses;
-            vs.act((room) => room.finish({
-              score: hits,
-              hits,
-              misses,
-              acc: shots > 0 ? Math.round((hits / shots) * 100) : 0,
-            }));
-            setDone(true);
-          }
-        }, 100);
-        return () => window.clearInterval(id);
-      }, [startLocal, durationMs]);
-
-      function maybeReport(hits, misses) {
-        const at = Date.now();
-        if (at - reported.current < 250) return;
-        reported.current = at;
-        const shots = hits + misses;
-        vs.act((room) => room.reportProgress({
-          score: hits,
-          hits,
-          misses,
-          acc: shots > 0 ? Math.round((hits / shots) * 100) : 0,
-        }));
-      }
-
-      function hit(event) {
-        event.stopPropagation();
-        if (finishedRef.current) return;
-        stats.current.hits += 1;
-        stats.current.index += 1;
-        const { hits, misses, index } = stats.current;
-        setView((current) => ({ ...current, hits, misses, index }));
-        maybeReport(hits, misses);
-      }
-
-      function miss() {
-        if (finishedRef.current) return;
-        stats.current.misses += 1;
-        setView((current) => ({ ...current, misses: stats.current.misses }));
-      }
-
-      const target = targets[view.index % targets.length];
-      const shots = view.hits + view.misses;
-
-      return h('div', { className: 'at-duel' },
-        h('div', { className: 'at-arena', onPointerDown: miss },
-          h('div', { className: 'at-grid' }),
-          !done && h('button', {
-            type: 'button',
-            className: 'at-target',
-            style: { left: target.x * 100 + '%', top: target.y * 100 + '%' },
-            onPointerDown: hit,
-            'aria-label': t('hits'),
-          }),
-          done && h('div', { className: 'at-flag' }, t('done')),
-        ),
-        h('div', { className: 'at-stats' },
-          statCell(t('you'), view.hits),
-          statCell(t('accuracy'), (shots ? Math.round(view.hits / shots * 100) : 0) + '%'),
-          statCell(t('timeLeft'), view.left + t('sec')),
-        ),
-      );
-    }
-
-    function DuelReaction({ vs, t, seed, rounds }) {
-      const spots = React.useMemo(() => buildTargets(seed ^ 0x5bf03635, rounds + 6), [seed, rounds]);
-      const delays = React.useMemo(() => {
-        const next = mulberry32(seed);
-        const out = [];
-        for (let index = 0; index < rounds; index += 1) out.push(700 + next() * 1300);
-        return out;
-      }, [seed, rounds]);
-      const [stage, setStage] = React.useState('wait');
-      const [round, setRound] = React.useState(1);
-      const [times, setTimes] = React.useState([]);
-      const [early, setEarly] = React.useState(false);
-      const [done, setDone] = React.useState(false);
-      const startAt = React.useRef(0);
-      const spot = spots[(round - 1) % spots.length];
-
-      React.useEffect(() => {
-        if (stage !== 'wait' || done) return undefined;
-        const id = window.setTimeout(() => {
-          startAt.current = performance.now();
-          setEarly(false);
-          setStage('ready');
-        }, delays[round - 1]);
-        return () => window.clearTimeout(id);
-      }, [stage, round, done]);
-
-      function hit(event) {
-        event.stopPropagation();
-        if (stage !== 'ready') return;
-        const value = performance.now() - startAt.current;
-        const next = times.concat(value);
-        setTimes(next);
-        const average = Math.round(next.reduce((sum, item) => sum + item, 0) / next.length);
-        vs.act((room) => room.reportProgress({ score: average, hits: next.length, misses: 0, acc: 0 }));
-        if (next.length >= rounds) {
-          setDone(true);
-          vs.act((room) => room.finish({ score: average, hits: next.length, misses: 0, acc: 0 }));
-        } else {
-          setRound((count) => count + 1);
-          setStage('wait');
-        }
-      }
-
-      const last = times.length > 0 ? Math.round(times[times.length - 1]) : 0;
-      const average = times.length ? Math.round(times.reduce((sum, value) => sum + value, 0) / times.length) : 0;
-
-      return h('div', { className: 'at-duel' },
-        h('div', {
-          className: 'at-arena',
-          onPointerDown: () => { if (stage === 'wait' && !done) setEarly(true); },
-        },
-          h('div', { className: 'at-grid' }),
-          stage === 'ready' && h('button', {
-            type: 'button',
-            className: 'at-target',
-            style: { left: spot.x * 100 + '%', top: spot.y * 100 + '%' },
-            onPointerDown: hit,
-            'aria-label': t('now'),
-          }),
-          stage === 'wait' && h('p', { className: 'at-hint' }, early ? t('early') : t('ready')),
-          done && h('div', { className: 'at-flag' }, t('done')),
-        ),
-        h('div', { className: 'at-stats' },
-          statCell(t('round'), `${Math.min(round, rounds)}/${rounds}`),
-          statCell(t('reaction'), last > 0 ? last + t('ms') : '—'),
-          statCell(t('reactionBest'), average > 0 ? average + t('ms') : '—'),
-        ),
-      );
-    }
+    function DuelClick(props) { return h(DuelGame, { ...props, mode: 'click' }); }
+    function DuelReaction(props) { return h(DuelGame, { ...props, mode: 'reaction' }); }
 
     function matchPlayers(snap) {
       const ids = snap.participantIds;
@@ -880,7 +504,7 @@
       );
     }
 
-    function VersusPanel({ vs, t }) {
+    function VersusPanel({ vs, t, visible = true }) {
       const now = useTicker(true);
       const [codeInput, setCodeInput] = React.useState('');
       const [copied, setCopied] = React.useState(false);
@@ -977,8 +601,8 @@
       if (playing) {
         return h('div', { className: 'at-vs' },
           snap.mode === 'reaction'
-            ? h(DuelReaction, { key: snap.matchId, vs, t, seed: snap.seed, rounds: snap.rounds || 8 })
-            : h(DuelClick, { key: snap.matchId, vs, t, seed: snap.seed, durationMs: snap.durationMs || 30000, startLocal }),
+            ? h(DuelReaction, { key: snap.matchId, vs, t, visible, seed: snap.seed, rounds: snap.rounds || 8, startLocal })
+            : h(DuelClick, { key: snap.matchId, vs, t, visible, seed: snap.seed, durationMs: snap.durationMs || 30000, startLocal }),
           h(MatchProgress, { snap, t }),
           h('button', { className: 'at-ghost', type: 'button', onClick: () => vs.leave() }, t('leaveRoom')),
         );
@@ -1038,11 +662,12 @@
           h('span', { className: 'at-note' }, t('roundsHint')),
         ) : null,
         h('div', { className: 'at-row' },
-          h('button', { className: 'at-primary', type: 'button', onClick: () => vs.act((room) => room.setReady(!ready)) }, ready ? t('unready') : t('ready')),
+          h('button', { className: 'at-primary', type: 'button', onClick: () => vs.act((room) => room.setReady(!ready)) }, ready ? t('unready') : t('readyButton')),
           h('button', {
             className: 'at-primary',
             type: 'button',
             disabled: snap.role !== 'host' || !allReady,
+            'data-shortcut-start': '',
             onClick: () => vs.act((room) => room.startMatch(snap.mode, { rounds: snap.rounds || 8 })),
           }, t('startMatch')),
         ),
@@ -1052,6 +677,15 @@
         ),
         h('button', { className: 'at-ghost', type: 'button', onClick: () => vs.leave() }, t('leaveRoom')),
       );
+    }
+
+    function targetIcon(mode = 'click') {
+      return h('svg', { viewBox: '0 0 32 32', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, 'aria-hidden': true },
+        mode === 'track'
+          ? h('path', { d: 'M3 22c7 0 5-14 12-14s5 16 14 16M22 20l7 4-6 4' })
+          : mode === 'reaction'
+            ? h('path', { d: 'M18 2 7 18h8l-1 12 11-17h-8l1-11Z' })
+            : h(React.Fragment, null, h('circle', { cx: 16, cy: 16, r: 10 }), h('circle', { cx: 16, cy: 16, r: 4 }), h('path', { d: 'M16 1v6m0 18v6M1 16h6m18 0h6' })));
     }
 
     function createTrainer(ctx, t) {
@@ -1067,34 +701,36 @@
         const posRef = React.useRef(pos);
         const grabRef = React.useRef(null);
         const vs = useVersus();
+        const [size, setSize] = React.useState(loadSize);
+        const resizeRef = React.useRef(null);
+        const sizeRef = React.useRef(size);
+        const expandedRef = React.useRef(isExpanded(size));
+        sizeRef.current = size;
 
-        function setPos(next) {
-          posRef.current = next;
-          setPosState(next);
+        function setPos(next) { posRef.current = next; setPosState(next); }
+        function savePosition() {
+          try { window.localStorage.setItem(POS_KEY, JSON.stringify(posRef.current)); } catch (_) { /* Session only. */ }
         }
-
         React.useEffect(() => ctx.locale.subscribe(() => bump((n) => n + 1)), []);
         React.useEffect(() => {
-          if (!open) return undefined;
-          const onKey = (event) => { if (event.key === 'Escape') setOpen(false); };
-          window.addEventListener('keydown', onKey);
-          return () => window.removeEventListener('keydown', onKey);
+          if (open) winRef.current?.focus({ preventScroll: true });
         }, [open]);
-
         React.useEffect(() => {
           if (!open) return undefined;
           const onResize = () => {
-            const node = winRef.current;
-            if (!node) return;
-            const rect = node.getBoundingClientRect();
-            setPos(clampToViewport(posRef.current.left, posRef.current.top, rect.width, rect.height));
+            const next = expandedRef.current
+              ? fitSize(window.innerWidth - 16, window.innerHeight - 16)
+              : fitSize(sizeRef.current.width, sizeRef.current.height);
+            sizeRef.current = next; setSize(next);
+            setPos(clampToViewport(posRef.current.left, posRef.current.top, next.width, next.height));
           };
+          onResize();
           window.addEventListener('resize', onResize);
           return () => window.removeEventListener('resize', onResize);
         }, [open]);
 
         function grab(event) {
-          if (event.button !== 0) return;
+          if (event.button !== 0 || event.target.closest?.('button,input,select,a,[role="tablist"]')) return;
           const node = winRef.current;
           if (!node) return;
           const rect = node.getBoundingClientRect();
@@ -1102,93 +738,112 @@
           event.currentTarget.setPointerCapture(event.pointerId);
           setDragging(true);
         }
-
         function drag(event) {
-          if (!grabRef.current) return;
-          const node = winRef.current;
-          if (!node) return;
-          const rect = node.getBoundingClientRect();
+          if (!grabRef.current || !winRef.current) return;
+          const rect = winRef.current.getBoundingClientRect();
           setPos(clampToViewport(event.clientX - grabRef.current.dx, event.clientY - grabRef.current.dy, rect.width, rect.height));
         }
-
         function drop(event) {
           if (!grabRef.current) return;
-          grabRef.current = null;
-          setDragging(false);
-          try { window.localStorage.setItem(POS_KEY, JSON.stringify(posRef.current)); } catch (_) { /* Position resets next session. */ }
-          if (event) event.currentTarget.releasePointerCapture?.(event.pointerId);
+          grabRef.current = null; setDragging(false); savePosition();
+          event?.currentTarget.releasePointerCapture?.(event.pointerId);
         }
-
+        function resizeTo(width, height, expanded = false) {
+          const next = fitSize(width, height);
+          expandedRef.current = expanded;
+          sizeRef.current = next; setSize(next);
+          setPos(clampToViewport(posRef.current.left, posRef.current.top, next.width, next.height));
+          try { window.localStorage.setItem(SIZE_KEY, JSON.stringify({ ...next, expanded })); } catch (_) { /* Session only. */ }
+        }
         function centre() {
-          const node = winRef.current;
-          const width = node ? node.getBoundingClientRect().width : WIDTH;
-          setPos({ left: Math.max(8, Math.round((window.innerWidth - width) / 2)), top: 76 });
-          try { window.localStorage.setItem(POS_KEY, JSON.stringify(posRef.current)); } catch (_) { /* Ignore. */ }
+          const current = sizeRef.current;
+          setPos(clampToViewport(Math.round((window.innerWidth - current.width) / 2), Math.round((window.innerHeight - current.height) / 2), current.width, current.height));
+          savePosition();
         }
-
+        function expand() {
+          if (expandedRef.current) resizeTo(WIDTH, HEIGHT);
+          else resizeTo(window.innerWidth - 16, window.innerHeight - 16, true);
+          centre();
+        }
+        function startResize(event) {
+          if (event.button !== 0) return;
+          event.preventDefault(); event.stopPropagation();
+          resizeRef.current = { x: event.clientX, y: event.clientY, ...sizeRef.current };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }
+        function moveResize(event) {
+          const start = resizeRef.current;
+          if (start) resizeTo(start.width + event.clientX - start.x, start.height + event.clientY - start.y);
+        }
+        function stopResize(event) { resizeRef.current = null; event.currentTarget.releasePointerCapture?.(event.pointerId); }
+        function onGameKey(event) {
+          if (event.isComposing || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+          const panel = winRef.current?.querySelector('[data-active-panel="true"]');
+          if (event.key === 'Escape') {
+            event.preventDefault(); event.stopPropagation();
+            if (panel?.querySelector('.ar-range[data-active="true"]')) document.exitPointerLock?.();
+            else setOpen(false);
+            return;
+          }
+          if (event.code !== 'Space' && event.key !== ' ') return;
+          if (event.target?.closest?.('input,textarea,select,button,a,[contenteditable="true"],[role="slider"]')) return;
+          event.preventDefault(); event.stopPropagation();
+          panel?.querySelector('[data-shortcut-start]:not(:disabled)')?.click();
+        }
         function record(kind, value) {
           if (!(typeof value === 'number' && Number.isFinite(value) && value > 0)) return false;
           const previous = records[kind];
-          const lowerIsBetter = kind === 'reaction';
-          const better = previous === null || (lowerIsBetter ? value < previous : value > previous);
-          if (!better) return false;
-          const next = { ...records, [kind]: value };
-          setRecords(next);
-          try { window.localStorage.setItem(REC_KEY, JSON.stringify(next)); } catch (_) { /* Session-only record. */ }
+          if (previous !== null && !(kind === 'reaction' ? value < previous : value > previous)) return false;
+          const next = { ...records, [kind]: value }; setRecords(next);
+          try { window.localStorage.setItem(REC_KEY, JSON.stringify(next)); } catch (_) { /* Session only. */ }
           return true;
         }
-
-        const row = (label, value, unit) => h('div', { className: 'at-record' },
-          h('span', null, label),
-          value === null ? h('strong', { className: 'at-empty' }, t('noRecord')) : h('strong', null, unit ? `${value} ${unit}` : `${value}`),
-        );
-
+        const soloVisible = open && tab === 'train';
+        const taskTitle = (key) => t(key === 'click' ? 'gridshot' : key === 'reaction' ? 'reactionTask' : 'trackingTask');
+        const game = mode === 'click' ? ClickGame : mode === 'reaction' ? ReactionGame : TrackGame;
         return h('div', { className: 'at-root' },
-          h('style', null, CSS),
-          h('button', { type: 'button', className: 'at-launch', title: t(open ? 'close' : 'open'), 'aria-label': t(open ? 'close' : 'open'), 'aria-expanded': open, onClick: () => setOpen(!open) }, '🎯'),
-          (open || vs.stage === 'room') && h('section', {
-            className: 'at-win',
-            ref: winRef,
-            style: { left: pos.left + 'px', top: pos.top + 'px', display: open ? 'flex' : 'none' },
-            'aria-label': t('title'),
+          h('style', null, CSS + APP_CSS),
+          h('button', { type: 'button', className: 'at-launch', title: t(open ? 'close' : 'open'), 'aria-label': t(open ? 'close' : 'open'), 'aria-expanded': open, onClick: () => setOpen(!open) }, targetIcon()),
+          h('section', {
+            className: 'at-win', ref: winRef,
+            style: { left: pos.left + 'px', top: pos.top + 'px', width: size.width + 'px', height: size.height + 'px', display: open ? 'flex' : 'none' },
+            role: 'dialog', tabIndex: -1, onKeyDown: onGameKey, 'aria-label': t('title'),
+            onPointerDownCapture: (event) => { if (!event.target.closest?.('button,input,textarea,select,a,[contenteditable]')) winRef.current?.focus({ preventScroll: true }); },
           },
-            h('div', {
-              className: 'at-bar' + (dragging ? ' at-drag' : ''),
-              onPointerDown: grab,
-              onPointerMove: drag,
-              onPointerUp: drop,
-              onPointerCancel: drop,
-              title: t('drag'),
-            },
-              h('span', { className: 'at-dot' }),
-              h('span', { className: 'at-name' }, t('title')),
-              h('span', { className: 'at-spacer' }),
-              h('button', { className: 'at-ico', type: 'button', title: t('center'), 'aria-label': t('center'), onPointerDown: (e) => e.stopPropagation(), onClick: centre }, '⌖'),
-              h('button', { className: 'at-ico', type: 'button', title: t('close'), 'aria-label': t('close'), onPointerDown: (e) => e.stopPropagation(), onClick: () => setOpen(false) }, '×'),
-            ),
-            h('div', { className: 'at-tabs', role: 'tablist', 'aria-label': t('title') },
-              h('button', { className: 'at-tab', role: 'tab', type: 'button', 'aria-selected': tab === 'train', onClick: () => setTab('train') }, t('trainTab')),
-              h('button', { className: 'at-tab', role: 'tab', type: 'button', 'aria-selected': tab === 'versus', onClick: () => setTab('versus') }, t('versusTab')),
-              h('button', { className: 'at-tab', role: 'tab', type: 'button', 'aria-selected': tab === 'records', onClick: () => setTab('records') }, t('recordTab')),
-            ),
-            h('div', { style: { display: tab === 'train' ? 'block' : 'none' } },
-              h('div', { className: 'at-modes' },
-                ['click', 'reaction', 'track'].map((key) =>
-                  h('button', { key, type: 'button', className: 'at-mode', 'aria-pressed': mode === key, onClick: () => setMode(key) }, t(key)),
-                ),
-              ),
-              mode === 'click' && h(ClickGame, { key: 'click', t, onFinish: record }),
-              mode === 'reaction' && h(ReactionGame, { key: 'reaction', t, onFinish: record }),
-              mode === 'track' && h(TrackGame, { key: 'track', t, onFinish: record }),
-            ),
-            h('div', { style: { display: tab === 'versus' ? 'block' : 'none' } }, h(VersusPanel, { vs, t })),
-            tab === 'records' ? h('div', { className: 'at-records' },
-              row(t('clickBest'), records.click, ''),
-              row(t('reactionBest'), records.reaction, t('ms')),
-              row(t('trackBest'), records.track, '%'),
-            ) : null,
-          ),
-        );
+            h('header', { className: 'at-bar' + (dragging ? ' at-drag' : ''), onPointerDown: grab, onPointerMove: drag, onPointerUp: drop, onPointerCancel: drop, title: t('drag') },
+              h('div', { className: 'at-brand' }, targetIcon(), h('div', null, h('b', null, 'Aim Trainer'), h('small', null, t('brandTagline')))),
+              h('nav', { className: 'at-app-nav', role: 'tablist', 'aria-label': t('title') },
+                ...[['train', 'trainTab'], ['versus', 'versusTab'], ['records', 'recordTab'], ['settings', 'settingsTab']].map(([key, label]) =>
+                  h('button', { key, className: 'at-tab', type: 'button', role: 'tab', 'aria-selected': tab === key, onClick: () => setTab(key) }, t(label)))),
+              h('span', { className: 'at-spacer' }), h('span', { className: 'at-version' }, `v${APP_VERSION}`),
+              h('button', { className: 'at-ico', type: 'button', title: t('expand'), 'aria-label': t('expand'), onClick: expand }, '⛶'),
+              h('button', { className: 'at-ico', type: 'button', title: t('center'), 'aria-label': t('center'), onClick: centre }, '⌖'),
+              h('button', { className: 'at-ico', type: 'button', title: t('close'), 'aria-label': t('close'), onClick: () => setOpen(false) }, '×')),
+            h('main', { className: 'at-content' },
+              h('div', { className: 'at-training-shell', 'data-active-panel': tab === 'train' ? 'true' : 'false', style: { display: tab === 'train' ? 'grid' : 'none' } },
+                h('aside', { className: 'at-sidebar' },
+                  h('div', { className: 'at-side-label' }, t('trainingLibrary')),
+                  h('div', { className: 'at-modes' }, ...['click', 'reaction', 'track'].map(key => h('button', {
+                    key, className: 'at-mode', type: 'button', 'aria-pressed': mode === key, onClick: () => setMode(key),
+                  }, targetIcon(key), h('span', null, taskTitle(key), h('small', null, t(`${key}Category`)))))),
+                  h('div', { className: 'at-side-bottom' }, h('strong', null, t('localTraining')), h('p', null, t('localTrainingHint')))),
+                h('div', { className: 'at-main-training' },
+                  h('div', { className: 'at-breadcrumb' }, h('span', null, t('trainTab')), h('span', null, '/'), h('span', null, taskTitle(mode))),
+                  h(game, { key: mode, t, onFinish: record, visible: soloVisible, onBack: () => setTab('train') }))),
+              h('div', { 'data-active-panel': tab === 'versus' ? 'true' : 'false', style: { display: tab === 'versus' ? 'block' : 'none' } },
+                h(VersusPanel, { vs, t, visible: open && tab === 'versus' })),
+              tab === 'records' && h('div', { 'data-active-panel': 'true' }, h(RangeRecords, { t })),
+              tab === 'settings' && h('div', { className: 'ar-settings-page', 'data-active-panel': 'true' },
+                h('div', { className: 'ar-page-heading' }, h('span', { className: 'ar-eyebrow' }, 'AIM TRAINER'), h('h2', null, t('settingsTab')), h('p', null, t('settingsHint'))),
+                h(RangeSettings, { t }))),
+            h('footer', { className: 'at-footer' }, h('span', null, t('shortcuts')),
+              h('button', { type: 'button', className: 'at-resize', 'aria-label': t('resize'), title: t('resizeHint'),
+                onPointerDown: startResize, onPointerMove: moveResize, onPointerUp: stopResize, onPointerCancel: stopResize,
+                onKeyDown: (event) => {
+                  const delta = { ArrowLeft: [-24, 0], ArrowRight: [24, 0], ArrowUp: [0, -24], ArrowDown: [0, 24] }[event.key];
+                  if (delta) { event.preventDefault(); event.stopPropagation(); resizeTo(size.width + delta[0], size.height + delta[1]); }
+                },
+              }, '◢'))));
       };
     }
 
@@ -1277,4 +932,4 @@
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({ name: 'shell.overlay', id: 'aim-trainer', order: 80 }, createTrainer(ctx, t)));
       },
     };
-  
+
